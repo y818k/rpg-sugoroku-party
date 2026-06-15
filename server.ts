@@ -6,6 +6,7 @@ import {
   joinRoom,
   startGame,
   rollRoulette,
+  chooseBranch,
   useItem,
   equipGear,
   combatCommand,
@@ -68,6 +69,12 @@ app.prepare().then(() => {
 
     socket.on("turn:end", ({ roomCode, playerId }, cb) => {
       const result = endTurn(roomCode, playerId);
+      cb?.(result);
+      emitRoom(roomCode);
+    });
+
+    socket.on("branch:choose", ({ roomCode, playerId, choice }, cb) => {
+      const result = chooseBranch(roomCode, playerId, choice);
       cb?.(result);
       emitRoom(roomCode);
     });

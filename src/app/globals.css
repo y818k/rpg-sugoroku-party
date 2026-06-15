@@ -285,6 +285,11 @@ h3 {
   background: #183025;
 }
 
+.tile.junction {
+  background: #1d3120;
+  border-color: var(--accent-2);
+}
+
 .tile.boss,
 .tile.demon {
   background: #331c1a;
@@ -380,6 +385,38 @@ h3 {
 .gearGroup {
   display: grid;
   gap: 8px;
+}
+
+.branchPanel {
+  border-color: var(--accent-2);
+}
+
+.branchChoices {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.branchChoices button {
+  display: grid;
+  gap: 4px;
+  min-height: 72px;
+  align-content: center;
+}
+
+.branchChoices small {
+  color: rgba(27, 22, 4, 0.75);
+  font-size: 12px;
+}
+
+.loopChoice {
+  background: var(--accent-2);
+  color: #082018;
+}
+
+.bossChoice {
+  background: var(--danger);
+  color: #210905;
 }
 
 .log {

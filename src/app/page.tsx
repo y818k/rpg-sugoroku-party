@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { io, Socket } from "socket.io-client";
 import { Gear, GearType, Item, ItemKey, Job, Player, Room, gearTypeNames, itemCatalog, jobNames, tileIcons } from "@/shared/game";
 
-type PanelMode = "menu" | "items" | "gear" | "map" | "village" | "shop" | "sell";
+type PanelMode = "menu" | "items" | "gear" | "map" | "village" | "shop" | "sell" | "branch";
 
 const socket: Socket = io();
 const storage = {
@@ -216,12 +216,14 @@ function GameMap({ room, me, compact = false }: { room: Room; me?: Player; compa
 function TurnControls({ room, me, isTurn, call }: { room: Room; me?: Player; isTurn: boolean; call: (event: string, payload?: Record<string, unknown>) => void }) {
   const [mode, setMode] = useState<PanelMode>("menu");
   const inVillage = !!me && room.tiles[me.position]?.type === "village";
+  const inJunction = !!me && room.tiles[me.position]?.type === "junction";
 
   useEffect(() => {
-    setMode(inVillage ? "village" : "menu");
-  }, [room.currentTurn, inVillage]);
+    setMode(inVillage ? "village" : inJunction ? "branch" : "menu");
+  }, [room.currentTurn, inVillage, inJunction]);
 
   if (!me) return null;
+  if (isTurn && inJunction) return <BranchPanel room={room} me={me} call={call} />;
   if (!isTurn) return <p className="notice">他プレイヤーの操作を待っています。</p>;
   if (me.skipTurns > 0) return <p className="notice">次のターン休みです。ターンが回ると自動でスキップされます。</p>;
 
@@ -249,6 +251,28 @@ function TurnControls({ room, me, isTurn, call }: { room: Room; me?: Player; isT
       {mode === "village" && <VillagePanel me={me} call={call} setMode={setMode} />}
       {mode === "shop" && <ShopPanel call={call} />}
       {mode === "sell" && <SellPanel me={me} call={call} />}
+    </div>
+  );
+}
+
+function BranchPanel({ room, me, call }: { room: Room; me: Player; call: (event: string, payload?: Record<string, unknown>) => void }) {
+  const tile = room.tiles[me.position];
+  const boss = typeof tile.bossTo === "number" ? room.tiles[tile.bossTo] : undefined;
+  return (
+    <div className="actionCard branchPanel">
+      <h2>分岐地点</h2>
+      <p>このステージをもう一周してレベル上げ・装備集めを続けるか、中ボスへ向かうか選べます。</p>
+      <div className="branchChoices">
+        <button className="loopChoice" onClick={() => call("branch:choose", { choice: "loop" })}>
+          周回する
+          <small>同じステージの周回エリアへ戻る</small>
+        </button>
+        <button className="bossChoice" onClick={() => call("branch:choose", { choice: "boss" })}>
+          中ボスへ向かう
+          <small>{boss ? `${boss.label} 推奨Lv${boss.recommendedLevel}` : "挑戦エリアへ進む"}</small>
+        </button>
+      </div>
+      <MapPanel room={room} me={me} />
     </div>
   );
 }

@@ -111,7 +111,7 @@ export function startGame(roomCode: string, playerId: string) {
   if (!room) return fail("ルームがありません。");
   if (room.hostId !== playerId) return fail("ホストだけが開始できます。");
   room.phase = "playing";
-  room.tiles = generateMap();
+  room.tiles = generateLoopMap();
   room.currentTurn = 0;
   room.turnRolled = false;
   room.logs.unshift("ゲーム開始！冒険者たちはスタート地点に立った。");
@@ -136,6 +136,28 @@ export function rollRoulette(roomCode: string, playerId: string) {
   room.notice = { type: "system", title: "ルーレット", body: `${player.name} は ${move} マス進んだ。` };
   resolveLanding(room, player);
   if (!room.combat && room.phase === "playing" && !shouldHoldTurn(room, player)) nextTurn(room);
+  return ok();
+}
+
+export function chooseBranch(roomCode: string, playerId: string, choice: "loop" | "boss") {
+  const room = getRoom(roomCode);
+  const player = getCurrentPlayer(room, playerId);
+  if (!room || !player) return fail("今は操作できません。");
+  const tile = room.tiles[player.position];
+  if (tile?.type !== "junction") return fail("分岐地点にいません。");
+
+  if (choice === "loop") {
+    player.position = tile.loopTo ?? player.position;
+    room.logs.unshift(`${player.name} は中ボスを見送り、ステージ${tile.stage}をもう一周することにした。`);
+    room.notice = { type: "system", title: "周回を選択", body: `ステージ${tile.stage}の周回エリアへ戻りました。` };
+    nextTurn(room);
+    return ok();
+  }
+
+  player.position = tile.bossTo ?? player.position;
+  room.logs.unshift(`${player.name} は中ボスへ向かった。`);
+  room.notice = { type: "boss", title: "中ボスへ", body: `ステージ${tile.stage}の中ボスに挑みます。` };
+  resolveLanding(room, player);
   return ok();
 }
 
@@ -378,6 +400,33 @@ function randomTile(stage: 1 | 2 | 3): TileType {
   return r < 0.56 ? "battle" : r < 0.76 ? "event" : r < 0.96 ? "treasure" : "empty";
 }
 
+function generateLoopMap(): Tile[] {
+  const tiles: Tile[] = [{ id: id(), type: "start", label: "スタート", stage: 0 }];
+  for (const stage of [1, 2, 3] as const) {
+    const loopStart = tiles.length;
+    for (let i = 1; i <= stageLengths[stage]; i++) {
+      tiles.push({ id: id(), type: randomTile(stage), label: `S${stage}-${i}`, stage, route: pick(["A", "B", "C"]) });
+    }
+
+    const junctionIndex = tiles.length;
+    const bossIndex = junctionIndex + 1;
+    const villageIndex = junctionIndex + 2;
+    tiles.push({
+      id: id(),
+      type: "junction",
+      label: `分岐${stage}`,
+      stage,
+      loopTo: loopStart,
+      bossTo: bossIndex,
+      villageTo: villageIndex,
+    });
+    tiles.push({ id: id(), type: "boss", label: `中ボス${stage}`, stage, recommendedLevel: recommendedLevels[stage], villageTo: villageIndex });
+    tiles.push({ id: id(), type: "village", label: `村${stage}`, stage });
+  }
+  tiles.push({ id: id(), type: "demon", label: "魔王", stage: 4, recommendedLevel: recommendedLevels[4] });
+  return tiles;
+}
+
 function movePlayer(room: Room, player: Player, steps: number) {
   let remaining = steps;
   while (remaining > 0 && player.position < room.tiles.length - 1) {
@@ -385,7 +434,7 @@ function movePlayer(room: Room, player: Player, steps: number) {
     const tile = room.tiles[next];
     player.position = next;
     remaining -= 1;
-    if (tile.type === "village" || tile.type === "boss" || tile.type === "demon") break;
+    if (tile.type === "village" || tile.type === "boss" || tile.type === "demon" || tile.type === "junction") break;
   }
 }
 
@@ -394,6 +443,10 @@ function resolveLanding(room: Room, player: Player) {
   if (tile.type === "battle") startCombat(room, player, makeEnemy(tile.stage, "mob"));
   if (tile.type === "treasure") openTreasure(room, player, tile.stage);
   if (tile.type === "event") resolveEvent(room, player);
+  if (tile.type === "junction") {
+    room.logs.unshift(`${player.name} は分岐地点に到着した。周回するか、中ボスへ向かうか選べます。`);
+    room.notice = { type: "system", title: "分岐地点", body: "周回してレベル上げ・装備集めを続けるか、中ボスへ向かうか選択してください。" };
+  }
   if (tile.type === "boss") {
     if (player.defeatedBosses.includes(tile.stage)) movePlayer(room, player, 1);
     else startCombat(room, player, makeEnemy(tile.stage, "boss"));
@@ -570,7 +623,8 @@ function nextTurn(room: Room) {
 }
 
 function shouldHoldTurn(room: Room, player: Player) {
-  return room.tiles[player.position]?.type === "village";
+  const type = room.tiles[player.position]?.type;
+  return type === "village" || type === "junction";
 }
 
 function getRoom(code: string) {

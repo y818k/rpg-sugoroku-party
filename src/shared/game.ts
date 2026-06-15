@@ -1,6 +1,6 @@
 export type RoomPhase = "lobby" | "playing" | "finished";
 export type Job = "adventurer" | "warrior" | "mage";
-export type TileType = "empty" | "battle" | "treasure" | "event" | "start" | "village" | "boss" | "demon";
+export type TileType = "empty" | "battle" | "treasure" | "event" | "start" | "village" | "boss" | "demon" | "junction";
 export type Rarity = "normal" | "rare" | "epic" | "legendary";
 export type GearType = "weapon" | "armor" | "accessory";
 export type ItemKey = "potion" | "hiPotion" | "ether" | "hiEther" | "warpStone" | "windFeather" | "luckyCharm";
@@ -73,6 +73,9 @@ export type Tile = {
   stage: 0 | 1 | 2 | 3 | 4;
   route?: "A" | "B" | "C";
   recommendedLevel?: number;
+  loopTo?: number;
+  bossTo?: number;
+  villageTo?: number;
 };
 
 export type Enemy = {
@@ -139,6 +142,7 @@ export const tileIcons: Record<TileType, string> = {
   village: "🏘️",
   boss: "👹",
   demon: "😈",
+  junction: "🟢",
 };
 
 export const jobNames: Record<Job, string> = {
