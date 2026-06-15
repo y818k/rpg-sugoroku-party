@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { io, Socket } from "socket.io-client";
 import { Gear, GearType, Item, ItemKey, Job, Player, Room, gearTypeNames, itemCatalog, jobNames, tileIcons } from "@/shared/game";
 
-type PanelMode = "menu" | "items" | "gear" | "map" | "village" | "shop" | "sell" | "branch";
+type PanelMode = "menu" | "items" | "gear" | "map" | "village" | "shop" | "sell";
 
 const socket: Socket = io();
 const storage = {
@@ -149,7 +149,7 @@ export default function Home() {
         <span className={current?.id === playerId ? "turn on" : "turn"}>{current?.id === playerId ? "あなたのターン" : "待機中"}</span>
       </header>
 
-      {room.notice && <NoticePanel notice={room.notice} />}
+      {room.notice && <NoticePanel notice={room.notice} currentPlayerId={current?.id} />}
 
       <section className="board">
         <GameMap room={room} me={me} compact />
@@ -168,11 +168,7 @@ export default function Home() {
       </section>
 
       <section className={`panel controls ${combat ? "combatFocus" : ""}`}>
-        {combat ? (
-          <CombatPanel combat={combat} me={me} call={call} />
-        ) : (
-          <TurnControls room={room} me={me} isTurn={current?.id === playerId} call={call} />
-        )}
+        {combat ? <CombatPanel combat={combat} me={me} call={call} /> : <TurnControls room={room} me={me} isTurn={current?.id === playerId} call={call} />}
       </section>
 
       <section className="panel">
@@ -184,10 +180,11 @@ export default function Home() {
   );
 }
 
-function NoticePanel({ notice }: { notice: NonNullable<Room["notice"]> }) {
+function NoticePanel({ notice, currentPlayerId }: { notice: NonNullable<Room["notice"]>; currentPlayerId?: string }) {
+  const compact = !!notice.playerId && notice.playerId !== currentPlayerId;
   return (
-    <section className={`noticePanel ${notice.type}`}>
-      <strong>{notice.title}</strong>
+    <section className={`noticePanel ${notice.type} ${compact ? "compactNotice" : ""}`}>
+      <strong>{compact ? `前回の結果: ${notice.playerName ?? ""}` : notice.title}</strong>
       <p>{notice.body}</p>
     </section>
   );
@@ -199,13 +196,15 @@ function GameMap({ room, me, compact = false }: { room: Room; me?: Player; compa
     room.players.forEach((p) => map.set(p.position, [...(map.get(p.position) || []), p]));
     return map;
   }, [room.players]);
+
   return (
     <div className={`mapGrid ${compact ? "compact" : ""}`}>
       {room.tiles.map((tile, index) => (
         <div className={`tile ${tile.type} ${me?.position === index ? "mine" : ""}`} key={tile.id}>
           <span>{tileIcons[tile.type]}</span>
-          <small>{tile.label}{tile.route ? `-${tile.route}` : ""}</small>
+          <small>{tile.label}</small>
           {tile.recommendedLevel && <em>推奨Lv{tile.recommendedLevel}</em>}
+          {tile.connections && tile.connections.length > 1 && <em>分岐</em>}
           <div className="pieces">{positions.get(index)?.map((p) => <i key={p.id}>P{p.slot}</i>)}</div>
         </div>
       ))}
@@ -216,16 +215,17 @@ function GameMap({ room, me, compact = false }: { room: Room; me?: Player; compa
 function TurnControls({ room, me, isTurn, call }: { room: Room; me?: Player; isTurn: boolean; call: (event: string, payload?: Record<string, unknown>) => void }) {
   const [mode, setMode] = useState<PanelMode>("menu");
   const inVillage = !!me && room.tiles[me.position]?.type === "village";
-  const inJunction = !!me && room.tiles[me.position]?.type === "junction";
+  const choosingPath = !!me && room.pendingMove?.playerId === me.id;
+  const onJunction = !!me && room.tiles[me.position]?.type === "junction";
 
   useEffect(() => {
-    setMode(inVillage ? "village" : inJunction ? "branch" : "menu");
-  }, [room.currentTurn, inVillage, inJunction]);
+    setMode(inVillage ? "village" : "menu");
+  }, [room.currentTurn, inVillage]);
 
   if (!me) return null;
-  if (isTurn && inJunction) return <BranchPanel room={room} me={me} call={call} />;
   if (!isTurn) return <p className="notice">他プレイヤーの操作を待っています。</p>;
   if (me.skipTurns > 0) return <p className="notice">次のターン休みです。ターンが回ると自動でスキップされます。</p>;
+  if (choosingPath || onJunction) return <BranchPanel room={room} me={me} call={call} />;
 
   return (
     <div className="stack">
@@ -240,7 +240,7 @@ function TurnControls({ room, me, isTurn, call }: { room: Room; me?: Player; isT
       {mode === "menu" && (
         <div className="actionCard">
           <h2>ルーレット</h2>
-          <p>1〜6の出目で進みます。アイテム効果があれば出目に加算されます。</p>
+          <p>1〜6の出目で進みます。移動中に分岐へ着いたら、残り歩数を持ったまま道を選びます。</p>
           <button disabled={room.turnRolled} onClick={() => call("turn:roll")}>ルーレットを回す</button>
           {room.turnRolled && !inVillage && <button onClick={() => call("turn:end")}>ターン終了</button>}
         </div>
@@ -257,20 +257,24 @@ function TurnControls({ room, me, isTurn, call }: { room: Room; me?: Player; isT
 
 function BranchPanel({ room, me, call }: { room: Room; me: Player; call: (event: string, payload?: Record<string, unknown>) => void }) {
   const tile = room.tiles[me.position];
-  const boss = typeof tile.bossTo === "number" ? room.tiles[tile.bossTo] : undefined;
+  const options = room.pendingMove?.playerId === me.id
+    ? room.pendingMove.options
+    : (tile.connections ?? []).map((to, index) => ({ to, label: tile.connectionLabels?.[index] ?? `${room.tiles[to]?.label ?? "道"}へ` }));
   return (
     <div className="actionCard branchPanel">
       <h2>分岐地点</h2>
-      <p>このステージをもう一周してレベル上げ・装備集めを続けるか、中ボスへ向かうか選べます。</p>
+      <p>{room.pendingMove ? `残り${room.pendingMove.remaining}マス。道を選ぶと移動を続けます。` : "次に進む道を選んでください。"}</p>
       <div className="branchChoices">
-        <button className="loopChoice" onClick={() => call("branch:choose", { choice: "loop" })}>
-          周回する
-          <small>同じステージの周回エリアへ戻る</small>
-        </button>
-        <button className="bossChoice" onClick={() => call("branch:choose", { choice: "boss" })}>
-          中ボスへ向かう
-          <small>{boss ? `${boss.label} 推奨Lv${boss.recommendedLevel}` : "挑戦エリアへ進む"}</small>
-        </button>
+        {options.map((option) => {
+          const destination = room.tiles[option.to];
+          const bossRoute = destination?.type === "boss" || option.label.includes("中ボス");
+          return (
+            <button className={bossRoute ? "bossChoice" : "loopChoice"} key={`${option.to}-${option.label}`} onClick={() => call("branch:choose", { choice: String(option.to) })}>
+              {option.label}
+              <small>{destination ? `${tileIcons[destination.type]} ${destination.label}${destination.recommendedLevel ? ` 推奨Lv${destination.recommendedLevel}` : ""}` : "道を進む"}</small>
+            </button>
+          );
+        })}
       </div>
       <MapPanel room={room} me={me} />
     </div>
@@ -288,6 +292,12 @@ function ItemUsePanel({ me, call }: { me: Player; call: (event: string, payload?
     return [...map.values()];
   }, [me.inventory.items]);
 
+  useEffect(() => {
+    if (selected && !me.inventory.items.some((item) => item.id === selected.id)) {
+      setSelected(undefined);
+    }
+  }, [me.inventory.items, selected]);
+
   return (
     <div className="actionCard">
       <h2>アイテム使用</h2>
@@ -296,11 +306,15 @@ function ItemUsePanel({ me, call }: { me: Player; call: (event: string, payload?
           <button key={item.key} onClick={() => setSelected(item)}>{item.name} ×{count}</button>
         ))}
       </div>
+      {!grouped.length && <p>アイテムを持っていません。</p>}
       {selected && (
         <div className="confirmBox">
           <strong>{selected.name}</strong>
           <p>{itemCatalog[selected.key].description}</p>
-          <button onClick={() => call("item:use", { itemId: selected.id })}>使用しますか？</button>
+          <button onClick={() => {
+            call("item:use", { itemId: selected.id });
+            setSelected(undefined);
+          }}>使用しますか？</button>
         </div>
       )}
     </div>
@@ -329,11 +343,16 @@ function GearPanel({ me, call }: { me: Player; call: (event: string, payload?: R
         <div className="gearGroup" key={type}>
           <h3>{gearTypeNames[type]}</h3>
           <div className="items">
-            {lists[type].map((gear) => (
-              <button className={`${gear.rarity} ${selected?.id === gear.id ? "selected" : ""}`} key={gear.id} onClick={() => setSelected(gear)}>
-                {gear.name} {gearStats(gear)}
-              </button>
-            ))}
+            {lists[type].map((gear) => {
+              const equipped = me.equipment[type]?.id === gear.id;
+              const isSelected = selected?.id === gear.id;
+              return (
+                <button className={`${gear.rarity} gearCard ${equipped ? "equipped" : ""} ${isSelected ? "selected" : ""}`} key={gear.id} onClick={() => setSelected(gear)}>
+                  <span>{gear.name} {gearStats(gear)}</span>
+                  <small>{equipped ? "✓ 装備中" : isSelected ? "選択中" : "比較する"}</small>
+                </button>
+              );
+            })}
           </div>
         </div>
       ))}
@@ -350,22 +369,43 @@ function GearPanel({ me, call }: { me: Player; call: (event: string, payload?: R
 }
 
 function MapPanel({ room, me }: { room: Room; me: Player }) {
-  const stage = room.tiles[me.position]?.stage || 1;
-  const nextBoss = room.tiles.find((tile, index) => index > me.position && tile.type === "boss");
-  const nextVillage = room.tiles.find((tile, index) => index > me.position && tile.type === "village");
+  const currentTile = room.tiles[me.position];
+  const stage = currentTile?.stage || 1;
+  const nextBranch = room.tiles.find((tile, index) => index >= me.position && tile.type === "junction" && tile.stage === currentTile?.stage);
+  const nextBoss = room.tiles.find((tile, index) => index >= me.position && tile.type === "boss" && tile.stage === currentTile?.stage);
+  const nextVillage = room.tiles.find((tile, index) => index >= me.position && tile.type === "village" && tile.stage === currentTile?.stage);
+  const currentOptions = room.pendingMove?.playerId === me.id
+    ? room.pendingMove.options
+    : (currentTile?.connections ?? []).map((to, index) => ({ to, label: currentTile.connectionLabels?.[index] ?? `${room.tiles[to]?.label ?? "道"}へ` }));
+  const nearby = currentOptions.length ? currentOptions : describeNearbyConnections(room, me.position);
+
   return (
     <div className="actionCard">
       <h2>マップ確認</h2>
       <div className="mapSummary">
-        <span>現在地: {room.tiles[me.position]?.label}</span>
+        <span>現在地: {tileIcons[currentTile?.type ?? "empty"]} {currentTile?.label}</span>
         <span>現在ステージ: {stage}</span>
-        <span>次の中ボス: {nextBoss ? `${nextBoss.label} 推奨Lv${nextBoss.recommendedLevel}` : "なし"}</span>
-        <span>次の村: {nextVillage?.label ?? "なし"}</span>
-        <span>ルート: A / B / C の周回ルートを仮表示中</span>
+        <span>次の分岐: {nextBranch?.label ?? "なし"}</span>
+        <span>中ボス: {nextBoss ? `${nextBoss.label} 推奨Lv${nextBoss.recommendedLevel}` : "なし"}</span>
+        <span>村: {nextVillage?.label ?? "なし"}</span>
+      </div>
+      <div className="routeList">
+        <strong>{currentOptions.length ? "現在選べる道" : "近くの接続"}</strong>
+        {nearby.map((option) => (
+          <span key={`${option.to}-${option.label}`}>{option.label}: {tileIcons[room.tiles[option.to]?.type ?? "empty"]} {room.tiles[option.to]?.label}</span>
+        ))}
       </div>
       <GameMap room={room} me={me} />
     </div>
   );
+}
+
+function describeNearbyConnections(room: Room, position: number) {
+  return room.tiles
+    .map((tile, index) => ({ tile, index }))
+    .filter(({ tile, index }) => index >= position && tile.connections && tile.connections.length > 1)
+    .slice(0, 2)
+    .flatMap(({ tile }) => tile.connections!.map((to, optionIndex) => ({ to, label: `${tile.label} -> ${tile.connectionLabels?.[optionIndex] ?? room.tiles[to]?.label ?? "道"}` })));
 }
 
 function VillagePanel({ me, call, setMode }: { me: Player; call: (event: string, payload?: Record<string, unknown>) => void; setMode: (mode: PanelMode) => void }) {

@@ -71,11 +71,10 @@ export type Tile = {
   type: TileType;
   label: string;
   stage: 0 | 1 | 2 | 3 | 4;
-  route?: "A" | "B" | "C";
+  route?: "A" | "B" | "C" | string;
   recommendedLevel?: number;
-  loopTo?: number;
-  bossTo?: number;
-  villageTo?: number;
+  connections?: number[];
+  connectionLabels?: string[];
 };
 
 export type Enemy = {
@@ -105,6 +104,18 @@ export type RoomNotice = {
   type: "battle" | "treasure" | "event" | "village" | "boss" | "system";
   title: string;
   body: string;
+  playerId?: string;
+  playerName?: string;
+};
+
+export type PendingMove = {
+  playerId: string;
+  remaining: number;
+  from: number;
+  options: {
+    to: number;
+    label: string;
+  }[];
 };
 
 export type Room = {
@@ -118,6 +129,7 @@ export type Room = {
   combat?: CombatState;
   winnerId?: string;
   notice?: RoomNotice;
+  pendingMove?: PendingMove;
   logs: string[];
   eventHistory: string[];
   createdAt: number;
