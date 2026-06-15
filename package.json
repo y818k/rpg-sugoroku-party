@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "tsx server.ts",
+    "dev:lan": "tsx server.ts",
     "build": "next build",
     "start": "tsx server.ts",
     "lint": "next lint",

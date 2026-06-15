@@ -1,4 +1,5 @@
 import { createServer } from "node:http";
+import { networkInterfaces } from "node:os";
 import next from "next";
 import { Server } from "socket.io";
 import {
@@ -21,10 +22,17 @@ import {
 } from "./src/server/gameEngine";
 
 const dev = process.env.NODE_ENV !== "production";
-const hostname = "0.0.0.0";
+const hostname = process.env.HOST || process.env.HOSTNAME || "0.0.0.0";
 const port = Number(process.env.PORT ?? 3000);
 const app = next({ dev, hostname, port });
 const handler = app.getRequestHandler();
+
+function getLanUrls(port: number) {
+  return Object.values(networkInterfaces())
+    .flatMap((entries) => entries ?? [])
+    .filter((entry) => entry.family === "IPv4" && !entry.internal)
+    .map((entry) => `http://${entry.address}:${port}`);
+}
 
 app.prepare().then(() => {
   const httpServer = createServer(handler);
@@ -131,7 +139,11 @@ app.prepare().then(() => {
     });
   });
 
-  httpServer.listen(port, () => {
+  httpServer.listen(port, hostname, () => {
     console.log(`RPG Sugoroku Party ready on http://localhost:${port}`);
+    console.log(`Listening on HOST=${hostname} PORT=${port}`);
+    for (const url of getLanUrls(port)) {
+      console.log(`LAN access: ${url}`);
+    }
   });
 });
