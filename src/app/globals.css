@@ -1,0 +1,371 @@
+:root {
+  color-scheme: dark;
+  --bg: #10140f;
+  --panel: #1c231b;
+  --panel-2: #263021;
+  --line: #43503b;
+  --text: #f4f6ef;
+  --muted: #b8c2ad;
+  --accent: #e3c65e;
+  --accent-2: #62c6a5;
+  --danger: #ef7b67;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: radial-gradient(circle at top, #24321f 0, var(--bg) 46rem);
+  color: var(--text);
+  font-family: Arial, "Hiragino Kaku Gothic ProN", "Yu Gothic", Meiryo, sans-serif;
+}
+
+button,
+input {
+  min-height: 44px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  font: inherit;
+}
+
+button {
+  background: var(--accent);
+  color: #1b1604;
+  font-weight: 700;
+  padding: 0 14px;
+}
+
+button:disabled {
+  opacity: 0.45;
+}
+
+input {
+  width: 100%;
+  background: #11170f;
+  color: var(--text);
+  padding: 0 12px;
+}
+
+h1,
+h2,
+p {
+  margin: 0;
+}
+
+h1 {
+  font-size: 34px;
+}
+
+h2 {
+  font-size: 16px;
+  margin-bottom: 10px;
+}
+
+.shell,
+.game {
+  width: min(1120px, 100%);
+  margin: 0 auto;
+  padding: 16px;
+}
+
+.hero {
+  min-height: 34vh;
+  display: flex;
+  align-items: flex-end;
+  padding: 20px 0;
+}
+
+.hero p {
+  max-width: 620px;
+  color: var(--muted);
+  margin-top: 8px;
+}
+
+.eyebrow {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.panel {
+  background: color-mix(in srgb, var(--panel) 92%, black);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 14px;
+}
+
+.stack {
+  display: grid;
+  gap: 12px;
+}
+
+.actions,
+.items {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.actions > button,
+.items > button {
+  flex: 1 1 128px;
+}
+
+.notice {
+  color: var(--accent);
+}
+
+.lobby,
+.players,
+.status,
+.inventory,
+.village {
+  display: grid;
+  gap: 10px;
+}
+
+.player,
+.rank {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px;
+  background: var(--panel-2);
+  border-radius: 8px;
+}
+
+.player {
+  flex-direction: column;
+}
+
+.player span,
+.status span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  background: rgba(16, 20, 15, 0.92);
+  border-bottom: 1px solid var(--line);
+  padding: 12px 0;
+  margin-bottom: 12px;
+}
+
+.topbar div {
+  display: grid;
+  gap: 2px;
+}
+
+.topbar span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.turn {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 8px 10px;
+  white-space: nowrap;
+}
+
+.turn.on {
+  color: #112018;
+  background: var(--accent-2);
+}
+
+.board {
+  overflow: auto;
+  padding-bottom: 8px;
+}
+
+.mapGrid {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(72px, 1fr));
+  gap: 8px;
+  min-width: 920px;
+}
+
+.tile {
+  min-height: 76px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #182018;
+  padding: 6px;
+  display: grid;
+  grid-template-rows: auto auto 1fr;
+  gap: 2px;
+}
+
+.tile span {
+  font-size: 20px;
+}
+
+.tile small {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.tile.mine {
+  outline: 3px solid var(--accent);
+}
+
+.tile.battle {
+  background: #241d20;
+}
+
+.tile.treasure {
+  background: #252414;
+}
+
+.tile.event {
+  background: #17242a;
+}
+
+.tile.village {
+  background: #183025;
+}
+
+.tile.boss,
+.tile.demon {
+  background: #331c1a;
+}
+
+.pieces {
+  display: flex;
+  gap: 2px;
+  flex-wrap: wrap;
+  align-items: flex-end;
+}
+
+.pieces i {
+  background: var(--accent-2);
+  color: #082018;
+  border-radius: 4px;
+  padding: 1px 4px;
+  font-style: normal;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.content {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin: 12px 0;
+}
+
+.controls {
+  margin-bottom: 12px;
+}
+
+.status {
+  line-height: 1.5;
+}
+
+.log {
+  display: grid;
+  gap: 6px;
+  max-height: 220px;
+  overflow: auto;
+}
+
+.log p {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.meter {
+  height: 14px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: #0d100c;
+  border: 1px solid var(--line);
+}
+
+.meter span {
+  display: block;
+  height: 100%;
+  background: var(--danger);
+}
+
+.normal {
+  background: #e7e2d0;
+}
+
+.rare {
+  background: #82c8ff;
+}
+
+.epic {
+  background: #c996ff;
+}
+
+.legendary {
+  background: #ffd262;
+}
+
+.ranking {
+  display: grid;
+  gap: 10px;
+  margin: 18px 0;
+}
+
+.rank span {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #171000;
+  font-weight: 800;
+}
+
+.toast {
+  position: fixed;
+  left: 12px;
+  right: 12px;
+  bottom: 12px;
+  background: #11170f;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  padding: 12px;
+  color: var(--accent);
+}
+
+@media (max-width: 720px) {
+  .shell,
+  .game {
+    padding: 12px;
+  }
+
+  h1 {
+    font-size: 28px;
+  }
+
+  .content {
+    grid-template-columns: 1fr;
+  }
+
+  .mapGrid {
+    grid-template-columns: repeat(8, 68px);
+    min-width: 600px;
+  }
+
+  .tile {
+    min-height: 70px;
+  }
+
+  .topbar {
+    align-items: start;
+  }
+}
