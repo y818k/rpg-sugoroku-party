@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { io, Socket } from "socket.io-client";
 import { Gear, GearType, Item, ItemKey, Job, Player, Room, gearTypeNames, itemCatalog, jobNames, tileIcons } from "@/shared/game";
+import { createId } from "@/shared/id";
 
 type PanelMode = "menu" | "items" | "gear" | "map" | "village" | "shop" | "sell";
 
@@ -31,7 +32,7 @@ export default function Home() {
   const [message, setMessage] = useState("");
 
   useEffect(() => {
-    const storedPlayerId = storage.playerId || crypto.randomUUID();
+    const storedPlayerId = storage.playerId || createId("player");
     setPlayerId(storedPlayerId);
     storage.playerId = storedPlayerId;
     setRoomCode(storage.roomCode);

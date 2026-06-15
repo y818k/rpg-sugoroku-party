@@ -18,6 +18,7 @@ import {
   jobNames,
   rarityNames,
 } from "@/shared/game";
+import { createId } from "@/shared/id";
 
 export const rooms = new Map<string, Room>();
 
@@ -62,7 +63,7 @@ const eventPool = [
   ["tailwind", "不思議な風が吹いた！次回ルーレット+1", "good"],
 ] as const;
 
-const id = () => Math.random().toString(36).slice(2, 10);
+const id = () => createId("game");
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
 const roll = (min: number, max: number) => Math.floor(Math.random() * (max - min + 1)) + min;
 const pick = <T>(list: T[]) => list[roll(0, list.length - 1)];
