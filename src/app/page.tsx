@@ -2,7 +2,9 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { io, Socket } from "socket.io-client";
-import { Gear, ItemKey, Job, Player, Room, itemCatalog, tileIcons } from "@/shared/game";
+import { Gear, GearType, Item, ItemKey, Job, Player, Room, gearTypeNames, itemCatalog, jobNames, tileIcons } from "@/shared/game";
+
+type PanelMode = "menu" | "items" | "gear" | "map" | "village" | "shop" | "sell";
 
 const socket: Socket = io();
 const storage = {
@@ -29,7 +31,9 @@ export default function Home() {
   const [message, setMessage] = useState("");
 
   useEffect(() => {
-    setPlayerId(storage.playerId || crypto.randomUUID());
+    const storedPlayerId = storage.playerId || crypto.randomUUID();
+    setPlayerId(storedPlayerId);
+    storage.playerId = storedPlayerId;
     setRoomCode(storage.roomCode);
     setJoinCode(storage.roomCode);
     socket.on("room:update", (next: Room) => setRoom(next));
@@ -145,15 +149,17 @@ export default function Home() {
         <span className={current?.id === playerId ? "turn on" : "turn"}>{current?.id === playerId ? "あなたのターン" : "待機中"}</span>
       </header>
 
+      {room.notice && <NoticePanel notice={room.notice} />}
+
       <section className="board">
-        <GameMap room={room} me={me} />
+        <GameMap room={room} me={me} compact />
       </section>
 
       <section className="content">
         <div className="panel">
           <h2>自分</h2>
           {me && <Status player={me} />}
-          {activeTile && <p className="notice">現在地: {tileIcons[activeTile.type]} {activeTile.label}</p>}
+          {activeTile && <p className="notice">現在地: {tileIcons[activeTile.type]} {activeTile.label}{activeTile.recommendedLevel ? ` 推奨Lv${activeTile.recommendedLevel}` : ""}</p>}
         </div>
         <div className="panel">
           <h2>プレイヤー</h2>
@@ -161,15 +167,16 @@ export default function Home() {
         </div>
       </section>
 
-      <section className="panel controls">
+      <section className={`panel controls ${combat ? "combatFocus" : ""}`}>
         {combat ? (
-          <CombatPanel roomCode={roomCode} playerId={playerId} combat={combat} me={me} call={call} />
+          <CombatPanel combat={combat} me={me} call={call} />
         ) : (
           <TurnControls room={room} me={me} isTurn={current?.id === playerId} call={call} />
         )}
       </section>
 
       <section className="panel">
+        <h2>ログ</h2>
         <Log logs={room.logs} />
       </section>
       {message && <div className="toast">{message}</div>}
@@ -177,18 +184,28 @@ export default function Home() {
   );
 }
 
-function GameMap({ room, me }: { room: Room; me?: Player }) {
+function NoticePanel({ notice }: { notice: NonNullable<Room["notice"]> }) {
+  return (
+    <section className={`noticePanel ${notice.type}`}>
+      <strong>{notice.title}</strong>
+      <p>{notice.body}</p>
+    </section>
+  );
+}
+
+function GameMap({ room, me, compact = false }: { room: Room; me?: Player; compact?: boolean }) {
   const positions = useMemo(() => {
     const map = new globalThis.Map<number, Player[]>();
     room.players.forEach((p) => map.set(p.position, [...(map.get(p.position) || []), p]));
     return map;
   }, [room.players]);
   return (
-    <div className="mapGrid">
+    <div className={`mapGrid ${compact ? "compact" : ""}`}>
       {room.tiles.map((tile, index) => (
         <div className={`tile ${tile.type} ${me?.position === index ? "mine" : ""}`} key={tile.id}>
           <span>{tileIcons[tile.type]}</span>
           <small>{tile.label}{tile.route ? `-${tile.route}` : ""}</small>
+          {tile.recommendedLevel && <em>推奨Lv{tile.recommendedLevel}</em>}
           <div className="pieces">{positions.get(index)?.map((p) => <i key={p.id}>P{p.slot}</i>)}</div>
         </div>
       ))}
@@ -197,23 +214,190 @@ function GameMap({ room, me }: { room: Room; me?: Player }) {
 }
 
 function TurnControls({ room, me, isTurn, call }: { room: Room; me?: Player; isTurn: boolean; call: (event: string, payload?: Record<string, unknown>) => void }) {
-  const inVillage = me && room.tiles[me.position]?.type === "village";
+  const [mode, setMode] = useState<PanelMode>("menu");
+  const inVillage = !!me && room.tiles[me.position]?.type === "village";
+
+  useEffect(() => {
+    setMode(inVillage ? "village" : "menu");
+  }, [room.currentTurn, inVillage]);
+
+  if (!me) return null;
+  if (!isTurn) return <p className="notice">他プレイヤーの操作を待っています。</p>;
+  if (me.skipTurns > 0) return <p className="notice">次のターン休みです。ターンが回ると自動でスキップされます。</p>;
+
   return (
     <div className="stack">
-      <div className="actions">
-        <button disabled={!isTurn || room.turnRolled} onClick={() => call("turn:roll")}>ルーレット</button>
-        <button disabled={!isTurn} onClick={() => call("turn:end")}>ターン終了</button>
+      <div className="menuGrid">
+        <button className={mode === "menu" ? "active" : ""} onClick={() => setMode("menu")}>ルーレット</button>
+        <button className={mode === "items" ? "active" : ""} onClick={() => setMode("items")}>アイテム使用</button>
+        <button className={mode === "gear" ? "active" : ""} onClick={() => setMode("gear")}>装備変更</button>
+        <button className={mode === "map" ? "active" : ""} onClick={() => setMode("map")}>マップ確認</button>
+        {inVillage && <button className={mode === "village" ? "active" : ""} onClick={() => setMode("village")}>村</button>}
       </div>
-      {me && <Inventory me={me} call={call} inVillage={!!inVillage} />}
-      {inVillage && me && <Village me={me} call={call} />}
+
+      {mode === "menu" && (
+        <div className="actionCard">
+          <h2>ルーレット</h2>
+          <p>1〜6の出目で進みます。アイテム効果があれば出目に加算されます。</p>
+          <button disabled={room.turnRolled} onClick={() => call("turn:roll")}>ルーレットを回す</button>
+          {room.turnRolled && !inVillage && <button onClick={() => call("turn:end")}>ターン終了</button>}
+        </div>
+      )}
+      {mode === "items" && <ItemUsePanel me={me} call={call} />}
+      {mode === "gear" && <GearPanel me={me} call={call} />}
+      {mode === "map" && <MapPanel room={room} me={me} />}
+      {mode === "village" && <VillagePanel me={me} call={call} setMode={setMode} />}
+      {mode === "shop" && <ShopPanel call={call} />}
+      {mode === "sell" && <SellPanel me={me} call={call} />}
     </div>
   );
 }
 
-function CombatPanel({ combat, me, call }: { roomCode: string; playerId: string; combat: NonNullable<Room["combat"]>; me?: Player; call: (event: string, payload?: Record<string, unknown>) => void }) {
+function ItemUsePanel({ me, call }: { me: Player; call: (event: string, payload?: Record<string, unknown>) => void }) {
+  const [selected, setSelected] = useState<Item | undefined>();
+  const grouped = useMemo(() => {
+    const map = new globalThis.Map<ItemKey, { item: Item; count: number }>();
+    me.inventory.items.forEach((item) => {
+      const current = map.get(item.key);
+      map.set(item.key, { item, count: (current?.count ?? 0) + 1 });
+    });
+    return [...map.values()];
+  }, [me.inventory.items]);
+
+  return (
+    <div className="actionCard">
+      <h2>アイテム使用</h2>
+      <div className="items">
+        {grouped.map(({ item, count }) => (
+          <button key={item.key} onClick={() => setSelected(item)}>{item.name} ×{count}</button>
+        ))}
+      </div>
+      {selected && (
+        <div className="confirmBox">
+          <strong>{selected.name}</strong>
+          <p>{itemCatalog[selected.key].description}</p>
+          <button onClick={() => call("item:use", { itemId: selected.id })}>使用しますか？</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function GearPanel({ me, call }: { me: Player; call: (event: string, payload?: Record<string, unknown>) => void }) {
+  const [selected, setSelected] = useState<Gear | undefined>();
+  const lists: Record<GearType, Gear[]> = {
+    weapon: me.inventory.weapons,
+    armor: me.inventory.armors,
+    accessory: me.inventory.accessories,
+  };
+  const current = selected ? me.equipment[selected.type] : undefined;
+  const diff = selected ? {
+    physical: selected.physical - (current?.physical ?? 0),
+    magical: selected.magical - (current?.magical ?? 0),
+    defense: selected.defense - (current?.defense ?? 0),
+  } : undefined;
+
+  return (
+    <div className="actionCard">
+      <h2>装備変更</h2>
+      <EquipmentSummary player={me} />
+      {(["weapon", "armor", "accessory"] as GearType[]).map((type) => (
+        <div className="gearGroup" key={type}>
+          <h3>{gearTypeNames[type]}</h3>
+          <div className="items">
+            {lists[type].map((gear) => (
+              <button className={`${gear.rarity} ${selected?.id === gear.id ? "selected" : ""}`} key={gear.id} onClick={() => setSelected(gear)}>
+                {gear.name} {gearStats(gear)}
+              </button>
+            ))}
+          </div>
+        </div>
+      ))}
+      {selected && (
+        <div className="confirmBox">
+          <p>現在: {current ? `${current.name} ${gearStats(current)}` : "なし"}</p>
+          <p>選択: {selected.name} {gearStats(selected)}</p>
+          {diff && <p>差分: {statDiff("物攻", diff.physical)} {statDiff("魔攻", diff.magical)} {statDiff("防御", diff.defense)}</p>}
+          <button disabled={current?.id === selected.id} onClick={() => call("gear:equip", { gearId: selected.id })}>装備変更</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MapPanel({ room, me }: { room: Room; me: Player }) {
+  const stage = room.tiles[me.position]?.stage || 1;
+  const nextBoss = room.tiles.find((tile, index) => index > me.position && tile.type === "boss");
+  const nextVillage = room.tiles.find((tile, index) => index > me.position && tile.type === "village");
+  return (
+    <div className="actionCard">
+      <h2>マップ確認</h2>
+      <div className="mapSummary">
+        <span>現在地: {room.tiles[me.position]?.label}</span>
+        <span>現在ステージ: {stage}</span>
+        <span>次の中ボス: {nextBoss ? `${nextBoss.label} 推奨Lv${nextBoss.recommendedLevel}` : "なし"}</span>
+        <span>次の村: {nextVillage?.label ?? "なし"}</span>
+        <span>ルート: A / B / C の周回ルートを仮表示中</span>
+      </div>
+      <GameMap room={room} me={me} />
+    </div>
+  );
+}
+
+function VillagePanel({ me, call, setMode }: { me: Player; call: (event: string, payload?: Record<string, unknown>) => void; setMode: (mode: PanelMode) => void }) {
+  return (
+    <div className="actionCard">
+      <h2>村での準備</h2>
+      <p>準備が終わるまでターンは進みません。</p>
+      <div className="menuGrid">
+        <button onClick={() => call("village:recover")}>回復</button>
+        <button onClick={() => setMode("shop")}>ショップ</button>
+        <button onClick={() => setMode("sell")}>売却</button>
+        <button onClick={() => setMode("gear")}>装備変更</button>
+      </div>
+      {!me.changedJob && (
+        <div className="items">
+          {(["adventurer", "warrior", "mage"] as Job[]).map((job) => (
+            <button key={job} onClick={() => call("job:change", { job })}>{jobNames[job]}</button>
+          ))}
+        </div>
+      )}
+      <button onClick={() => call("turn:end")}>村での準備を終えてターン終了</button>
+    </div>
+  );
+}
+
+function ShopPanel({ call }: { call: (event: string, payload?: Record<string, unknown>) => void }) {
+  return (
+    <div className="actionCard">
+      <h2>ショップ</h2>
+      <div className="items">
+        {(Object.keys(itemCatalog) as ItemKey[]).map((key) => (
+          <button key={key} onClick={() => call("shop:buy", { itemKey: key })}>{itemCatalog[key].name} {itemCatalog[key].value}G</button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function SellPanel({ me, call }: { me: Player; call: (event: string, payload?: Record<string, unknown>) => void }) {
+  const entries = [...me.inventory.weapons, ...me.inventory.armors, ...me.inventory.accessories, ...me.inventory.items];
+  return (
+    <div className="actionCard">
+      <h2>売却</h2>
+      <div className="items">
+        {entries.map((entry) => (
+          <button key={entry.id} onClick={() => call("inventory:sell", { id: entry.id })}>売却 {entry.name}</button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function CombatPanel({ combat, me, call }: { combat: NonNullable<Room["combat"]>; me?: Player; call: (event: string, payload?: Record<string, unknown>) => void }) {
   return (
     <div className="stack">
-      <h2>戦闘: {combat.enemy.name}</h2>
+      <h2>戦闘: {combat.enemy.name}{combat.enemy.recommendedLevel ? ` 推奨Lv${combat.enemy.recommendedLevel}` : ""}</h2>
       <div className="meter"><span style={{ width: `${(combat.enemy.hp / combat.enemy.maxHp) * 100}%` }} /></div>
       <p>{combat.enemy.hp}/{combat.enemy.maxHp} HP</p>
       <div className="actions">
@@ -222,61 +406,11 @@ function CombatPanel({ combat, me, call }: { roomCode: string; playerId: string;
         <button disabled={combat.enemy.kind !== "mob"} onClick={() => call("combat:command", { command: "run" })}>逃げる</button>
       </div>
       <div className="items">
-        {me?.inventory.items.filter((i) => i.key === "potion" || i.key === "hiPotion" || i.key === "ether" || i.key === "hiEther").map((item) => (
+        {me?.inventory.items.filter((i) => ["potion", "hiPotion", "ether", "hiEther"].includes(i.key)).map((item) => (
           <button key={item.id} onClick={() => call("combat:command", { command: "item", itemId: item.id })}>{item.name}</button>
         ))}
       </div>
       <Log logs={combat.log} />
-    </div>
-  );
-}
-
-function Village({ me, call }: { me: Player; call: (event: string, payload?: Record<string, unknown>) => void }) {
-  return (
-    <div className="village">
-      <h2>村</h2>
-      <div className="actions">
-        <button onClick={() => call("village:recover")}>回復</button>
-        {(["potion", "hiPotion", "ether", "hiEther", "warpStone", "windFeather", "luckyCharm"] as ItemKey[]).map((key) => (
-          <button key={key} onClick={() => call("shop:buy", { itemKey: key })}>{itemCatalog[key].name}</button>
-        ))}
-      </div>
-      {!me.changedJob && (
-        <div className="actions">
-          {(["adventurer", "warrior", "mage"] as Job[]).map((job) => (
-            <button key={job} onClick={() => call("job:change", { job })}>{jobName(job)}</button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function Inventory({ me, call, inVillage }: { me: Player; call: (event: string, payload?: Record<string, unknown>) => void; inVillage: boolean }) {
-  const gear = [...me.inventory.weapons, ...me.inventory.armors, ...me.inventory.accessories];
-  return (
-    <div className="inventory">
-      <h2>アイテム</h2>
-      <div className="items">
-        {me.inventory.items.map((item) => (
-          <button key={item.id} onClick={() => call("item:use", { itemId: item.id })}>{item.name}</button>
-        ))}
-      </div>
-      <h2>装備</h2>
-      <div className="items">
-        {gear.map((g) => (
-          <button className={g.rarity} key={g.id} onClick={() => call("gear:equip", { gearId: g.id })}>
-            {g.name} {gearStats(g)}
-          </button>
-        ))}
-      </div>
-      {inVillage && (
-        <div className="items">
-          {[...gear, ...me.inventory.items].map((entry) => (
-            <button key={entry.id} onClick={() => call("inventory:sell", { id: entry.id })}>売却 {entry.name}</button>
-          ))}
-        </div>
-      )}
     </div>
   );
 }
@@ -287,7 +421,7 @@ function PlayerList({ players, currentId }: { players: Player[]; currentId: stri
       {players.map((p) => (
         <div className="player" key={p.id}>
           <b>P{p.slot} {p.name}{p.id === currentId ? " (自分)" : ""}</b>
-          <span>{p.connected ? "接続中" : "切断中"} / Lv.{p.stats.level} / {p.stats.score}pt / {p.stats.gold}G</span>
+          <span>{p.connected ? "接続中" : "切断中"} / Lv.{p.stats.level} / {p.stats.score}pt / {p.stats.gold}G{p.skipTurns > 0 ? " / 次のターン休み" : ""}</span>
         </div>
       ))}
     </div>
@@ -295,13 +429,27 @@ function PlayerList({ players, currentId }: { players: Player[]; currentId: stri
 }
 
 function Status({ player }: { player: Player }) {
+  const bonus = gearBonus(player);
   return (
     <div className="status">
-      <strong>{jobName(player.job)} Lv.{player.stats.level}</strong>
+      <strong>{jobNames[player.job]} Lv.{player.stats.level}</strong>
       <span>HP {player.stats.hp}/{player.stats.maxHp}</span>
       <span>MP {player.stats.mp}/{player.stats.maxMp}</span>
-      <span>物攻 {player.stats.physical} / 魔攻 {player.stats.magical} / 防御 {player.stats.defense}</span>
+      <span>物攻 {player.stats.physical + bonus.physical}（+{bonus.physical}）</span>
+      <span>魔攻 {player.stats.magical + bonus.magical}（+{bonus.magical}）</span>
+      <span>防御 {player.stats.defense + bonus.defense}（+{bonus.defense}）</span>
       <span>EXP {player.stats.exp} / Gold {player.stats.gold} / Score {player.stats.score}</span>
+      <EquipmentSummary player={player} />
+    </div>
+  );
+}
+
+function EquipmentSummary({ player }: { player: Player }) {
+  return (
+    <div className="equipment">
+      <span>武器: {player.equipment.weapon ? `${player.equipment.weapon.name} ${gearStats(player.equipment.weapon)}` : "なし"}</span>
+      <span>防具: {player.equipment.armor ? `${player.equipment.armor.name} ${gearStats(player.equipment.armor)}` : "なし"}</span>
+      <span>アクセ: {player.equipment.accessory ? `${player.equipment.accessory.name} ${gearStats(player.equipment.accessory)}` : "なし"}</span>
     </div>
   );
 }
@@ -310,10 +458,20 @@ function Log({ logs }: { logs: string[] }) {
   return <div className="log">{logs.slice(0, 12).map((log, i) => <p key={`${log}-${i}`}>{log}</p>)}</div>;
 }
 
-function jobName(job: Job) {
-  return { adventurer: "冒険者", warrior: "戦士", mage: "魔法使い" }[job];
+function gearBonus(player: Player) {
+  const gear = Object.values(player.equipment);
+  return {
+    physical: gear.reduce((sum, g) => sum + (g?.physical ?? 0), 0),
+    magical: gear.reduce((sum, g) => sum + (g?.magical ?? 0), 0),
+    defense: gear.reduce((sum, g) => sum + (g?.defense ?? 0), 0),
+  };
 }
 
 function gearStats(gear: Gear) {
-  return [gear.physical ? `物+${gear.physical}` : "", gear.magical ? `魔+${gear.magical}` : "", gear.defense ? `防+${gear.defense}` : ""].filter(Boolean).join(" ");
+  return [gear.physical ? `物攻+${gear.physical}` : "", gear.magical ? `魔攻+${gear.magical}` : "", gear.defense ? `防御+${gear.defense}` : ""].filter(Boolean).join(" ");
+}
+
+function statDiff(label: string, value: number) {
+  if (!value) return `${label} ±0`;
+  return `${label} ${value > 0 ? "+" : ""}${value}`;
 }

@@ -63,6 +63,12 @@ h2 {
   margin-bottom: 10px;
 }
 
+h3 {
+  margin: 0 0 8px;
+  font-size: 14px;
+  color: var(--muted);
+}
+
 .shell,
 .game {
   width: min(1120px, 100%);
@@ -114,6 +120,41 @@ h2 {
 
 .notice {
   color: var(--accent);
+}
+
+.noticePanel {
+  display: grid;
+  gap: 4px;
+  margin-bottom: 12px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #172319;
+}
+
+.noticePanel strong {
+  color: var(--accent);
+}
+
+.noticePanel p {
+  color: var(--text);
+  line-height: 1.45;
+}
+
+.noticePanel.battle,
+.noticePanel.boss {
+  background: #301d1b;
+  border-color: #7c463d;
+}
+
+.noticePanel.treasure {
+  background: #2c2814;
+  border-color: #786622;
+}
+
+.noticePanel.event {
+  background: #17232c;
+  border-color: #3e6677;
 }
 
 .lobby,
@@ -193,6 +234,11 @@ h2 {
   min-width: 920px;
 }
 
+.mapGrid.compact {
+  max-height: 220px;
+  overflow: hidden;
+}
+
 .tile {
   min-height: 76px;
   border: 1px solid var(--line);
@@ -211,6 +257,12 @@ h2 {
 .tile small {
   color: var(--muted);
   font-size: 11px;
+}
+
+.tile em {
+  color: var(--accent);
+  font-size: 10px;
+  font-style: normal;
 }
 
 .tile.mine {
@@ -266,8 +318,68 @@ h2 {
   margin-bottom: 12px;
 }
 
+.combatFocus {
+  border-color: var(--danger);
+  box-shadow: 0 0 0 2px rgba(239, 123, 103, 0.22);
+}
+
 .status {
   line-height: 1.5;
+}
+
+.equipment,
+.mapSummary {
+  display: grid;
+  gap: 4px;
+  padding: 10px;
+  background: #121811;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.equipment span,
+.mapSummary span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.menuGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.menuGrid button.active,
+.items button.selected {
+  outline: 3px solid var(--accent-2);
+}
+
+.actionCard {
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.actionCard p {
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.confirmBox {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  background: #11170f;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+}
+
+.gearGroup {
+  display: grid;
+  gap: 8px;
 }
 
 .log {
