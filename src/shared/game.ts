@@ -75,6 +75,8 @@ export type Tile = {
   recommendedLevel?: number;
   connections?: number[];
   connectionLabels?: string[];
+  x?: number;
+  y?: number;
 };
 
 export type Enemy = {
@@ -98,6 +100,9 @@ export type CombatState = {
   playerId: string;
   enemy: Enemy;
   log: string[];
+  phase?: "idle" | "playerAction" | "enemyAction" | "result";
+  lastAction?: string;
+  updatedAt?: number;
 };
 
 export type RoomNotice = {
@@ -115,7 +120,21 @@ export type PendingMove = {
   options: {
     to: number;
     label: string;
+    previewType?: TileType;
+    previewLabel?: string;
+    previewPath?: number[];
   }[];
+};
+
+export type RoomActivity = {
+  kind: "turn" | "roll" | "move" | "branch" | "battle" | "treasure" | "event" | "village" | "system";
+  playerId?: string;
+  playerName?: string;
+  text: string;
+  path?: number[];
+  roll?: number;
+  move?: number;
+  createdAt: number;
 };
 
 export type Room = {
@@ -130,6 +149,8 @@ export type Room = {
   winnerId?: string;
   notice?: RoomNotice;
   pendingMove?: PendingMove;
+  activity?: RoomActivity;
+  lastMovePath?: number[];
   logs: string[];
   eventHistory: string[];
   createdAt: number;

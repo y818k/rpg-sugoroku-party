@@ -22,8 +22,9 @@ import { createId } from "@/shared/id";
 
 export const rooms = new Map<string, Room>();
 
-const stageLengths = [0, 18, 22, 26];
+const stageLengths = [0, 20, 24, 28];
 const recommendedLevels = { 1: 5, 2: 9, 3: 13, 4: 16 } as const;
+const rarityScore: Record<Rarity, number> = { normal: 1, rare: 3, epic: 6, legendary: 10 };
 const gearCaps: Record<GearType, "weapons" | "armors" | "accessories"> = {
   weapon: "weapons",
   armor: "armors",
@@ -135,6 +136,8 @@ export function rollRoulette(roomCode: string, playerId: string) {
   player.nextRollBonus = 0;
   player.nextRollPenalty = 0;
   room.turnRolled = true;
+  room.lastMovePath = [player.position];
+  setActivity(room, "roll", `${player.name} がルーレットで ${raw} を出した。${move}マス進む。`, player, { roll: raw, move, path: room.lastMovePath });
   movePlayer(room, player, move);
   room.logs.unshift(`${player.name} のルーレットは ${raw}、${move} マス進んだ。`);
 
@@ -154,12 +157,15 @@ export function chooseBranch(roomCode: string, playerId: string, choice: string)
   if (room.pendingMove?.playerId === playerId) {
     const option = room.pendingMove.options.find((entry) => entry.to === destination);
     if (!option) return fail("選べない道です。");
+    const previous = room.pendingMove.from;
     const remaining = Math.max(0, room.pendingMove.remaining - 1);
     room.pendingMove = undefined;
+    room.lastMovePath = [...(room.lastMovePath ?? []), option.to];
     player.position = option.to;
     room.logs.unshift(`${player.name} は ${option.label} を選んだ。`);
+    setActivity(room, "branch", `${player.name} が分岐で ${option.label} を選んだ。残り${remaining}マス。`, player, { path: room.lastMovePath });
     room.notice = makeNotice("system", `${player.name} の道選択`, `${option.label}へ進みます。残り${remaining}マス。`, player);
-    movePlayer(room, player, remaining);
+    movePlayer(room, player, remaining, previous);
     if (!room.pendingMove) resolveLanding(room, player);
     if (!room.pendingMove && !room.combat && room.phase === "playing" && !shouldHoldTurn(room, player)) nextTurn(room);
     return ok();
@@ -167,9 +173,11 @@ export function chooseBranch(roomCode: string, playerId: string, choice: string)
 
   const tile = room.tiles[player.position];
   if (!tile?.connections?.includes(destination)) return fail("選べない道です。");
+  room.lastMovePath = [player.position, destination];
   player.position = destination;
   const selected = room.tiles[destination];
   room.logs.unshift(`${player.name} は ${selected.label} へ向かった。`);
+  setActivity(room, "branch", `${player.name} が ${selected.label} へ向かった。`, player, { path: room.lastMovePath });
   room.notice = makeNotice(selected.type === "boss" ? "boss" : "system", `${player.name} の道選択`, `${selected.label}へ進みます。`, player);
   resolveLanding(room, player);
   if (!room.combat && room.phase === "playing" && !shouldHoldTurn(room, player)) nextTurn(room);
@@ -184,6 +192,7 @@ export function endTurn(roomCode: string, playerId: string) {
   if (room.pendingMove) return fail("先に道を選んでください。");
   if (room.tiles[player.position]?.type === "village") {
     room.logs.unshift(`${player.name}は村での準備を終えた。`);
+    setActivity(room, "village", `${player.name}は村での準備を終えた。`, player);
   }
   nextTurn(room);
   return ok();
@@ -193,9 +202,17 @@ export function useItem(roomCode: string, playerId: string, itemId: string) {
   const room = getRoom(roomCode);
   const player = room?.players.find((p) => p.id === playerId);
   if (!room || !player) return fail("プレイヤーが見つかりません。");
+  const isCurrent = room.players[room.currentTurn]?.id === playerId;
+  const inCombat = room.combat?.playerId === playerId;
   const index = player.inventory.items.findIndex((item) => item.id === itemId);
   if (index < 0) return fail("アイテムがありません。");
   const item = player.inventory.items[index];
+  const recoveryKeys: ItemKey[] = ["potion", "hiPotion", "ether", "hiEther"];
+  if (!isCurrent && !inCombat) return fail("自分のターンではありません。");
+  if (inCombat && !recoveryKeys.includes(item.key)) return fail("このアイテムは戦闘中に使えません。");
+  if (!inCombat && room.combat) return fail("他プレイヤーが戦闘中です。");
+  if (item.key === "windFeather" && room.turnRolled) return fail("疾風の羽はルーレット前のみ使えます。");
+  if (item.key === "warpStone" && inCombat) return fail("ワープ石は戦闘中に使えません。");
 
   if (item.key === "potion") player.stats.hp = clamp(player.stats.hp + 50, 0, player.stats.maxHp);
   if (item.key === "hiPotion") player.stats.hp = player.stats.maxHp;
@@ -207,6 +224,7 @@ export function useItem(roomCode: string, playerId: string, itemId: string) {
 
   player.inventory.items.splice(index, 1);
   room.logs.unshift(`${player.name} は ${item.name} を使った。`);
+  setActivity(room, "system", `${player.name} は ${item.name} を使った。`, player);
   room.notice = makeNotice("system", `${player.name} のアイテム使用`, `${item.name} を使った。`, player);
   return ok();
 }
@@ -221,6 +239,7 @@ export function equipGear(roomCode: string, playerId: string, gearId: string) {
   player.equipment[gear.type] = undefined;
   player.equipment[gear.type] = gear;
   room.logs.unshift(`${player.name} は ${gear.name} を装備した。`);
+  setActivity(room, "system", `${player.name} は ${gear.name} を装備した。`, player);
   room.notice = makeNotice("system", `${player.name} の装備変更`, `${gear.name} を装備した。`, player);
   return ok();
 }
@@ -242,6 +261,9 @@ export function combatCommand(roomCode: string, playerId: string, command: "atta
   if (command === "item" && itemId) {
     const used = useItem(roomCode, playerId, itemId);
     if (!used.ok) return used;
+    combat.phase = "playerAction";
+    combat.lastAction = `${player.name} がアイテムを使った。`;
+    combat.updatedAt = Date.now();
     enemyTurn(room, player, combat);
     return ok();
   }
@@ -257,6 +279,10 @@ export function combatCommand(roomCode: string, playerId: string, command: "atta
 
   combat.enemy.hp = clamp(combat.enemy.hp - damage, 0, combat.enemy.maxHp);
   combat.log.unshift(`${command === "skill" ? skill.name : "攻撃"}！${combat.enemy.name} に ${damage} ダメージ。`);
+  combat.phase = "playerAction";
+  combat.lastAction = `${player.name} の${command === "skill" ? skill.name : "攻撃"}。${combat.enemy.name} に ${damage} ダメージ。`;
+  combat.updatedAt = Date.now();
+  setActivity(room, "battle", combat.lastAction, player);
   if (combat.enemy.hp <= 0) {
     winCombat(room, player, combat.enemy);
     return ok();
@@ -274,6 +300,7 @@ export function recoverAtVillage(roomCode: string, playerId: string) {
   player.stats.mp = player.stats.maxMp;
   player.revivePosition = player.position;
   room.logs.unshift(`${player.name}は村で回復した。`);
+  setActivity(room, "village", `${player.name}は村で回復した。`, player);
   room.notice = makeNotice("village", `${player.name} の村行動`, "HP/MPを全回復した。", player);
   return ok();
 }
@@ -288,6 +315,7 @@ export function buyShopItem(roomCode: string, playerId: string, itemKey: ItemKey
   player.stats.gold -= catalog.value;
   player.inventory.items.push({ id: id(), key: catalog.key, name: catalog.name, value: catalog.value });
   room.logs.unshift(`${player.name}は${catalog.name}を購入した。`);
+  setActivity(room, "village", `${player.name}は${catalog.name}を購入した。`, player);
   room.notice = makeNotice("village", `${player.name} のショップ`, `${catalog.name}を購入した。`, player);
   return ok();
 }
@@ -302,9 +330,10 @@ export function sellInventory(roomCode: string, playerId: string, itemOrGearId: 
     if (index >= 0) {
       const [sold] = list.splice(index, 1);
       if ("type" in sold && player.equipment[sold.type]?.id === sold.id) player.equipment[sold.type] = undefined;
-      const value = Math.floor(sold.value / 2);
+      const value = "type" in sold ? sold.value : Math.floor(sold.value / 2);
       player.stats.gold += value;
       room.logs.unshift(`${player.name}は${sold.name}を${value}Gで売却した。`);
+      setActivity(room, "village", `${player.name}は${sold.name}を${value}Gで売却した。`, player);
       room.notice = makeNotice("village", `${player.name} の売却`, `${sold.name}を${value}Gで売却した。`, player);
       return ok();
     }
@@ -336,6 +365,7 @@ export function changeJob(roomCode: string, playerId: string, job: Job) {
   player.job = job;
   player.changedJob = true;
   room.logs.unshift(`${player.name}は${jobNames[job]}に転職した。`);
+  setActivity(room, "village", `${player.name}は${jobNames[job]}に転職した。`, player);
   room.notice = makeNotice("village", `${player.name} の転職`, `${jobNames[job]}に転職した。`, player);
   return ok();
 }
@@ -363,6 +393,23 @@ function uniqueCode() {
 
 function makeNotice(type: RoomNotice["type"], title: string, body: string, player: Player): RoomNotice {
   return { type, title, body, playerId: player.id, playerName: player.name };
+}
+
+function setActivity(
+  room: Room,
+  kind: NonNullable<Room["activity"]>["kind"],
+  text: string,
+  player?: Player,
+  extra: Partial<Pick<NonNullable<Room["activity"]>, "path" | "roll" | "move">> = {},
+) {
+  room.activity = {
+    kind,
+    text,
+    playerId: player?.id,
+    playerName: player?.name,
+    createdAt: Date.now(),
+    ...extra,
+  };
 }
 
 function createPlayer(playerId: string, name: string, slot: number, isHost: boolean): Player {
@@ -396,37 +443,101 @@ function createPlayer(playerId: string, name: string, slot: number, isHost: bool
 }
 
 function generateMap(): Tile[] {
-  const tiles: Tile[] = [{ id: id(), type: "start", label: "スタート", stage: 0 }];
+  const tiles: Tile[] = [{ id: id(), type: "start", label: "スタート", stage: 0, x: 50, y: 92 }];
+  let previousExit = 0;
   for (const stage of [1, 2, 3] as const) {
-    addStage(tiles, stage);
+    const stageMap = addIslandStage(tiles, stage);
+    connectOneWay(tiles, previousExit, stageMap.entry, `ステージ${stage}へ`);
+    previousExit = stageMap.village;
   }
-  tiles.push({ id: id(), type: "demon", label: "魔王", stage: 4, recommendedLevel: recommendedLevels[4] });
+  const castleStart = addTile(tiles, { type: "battle", label: "魔王城入口", stage: 4, x: 50, y: 84 });
+  connectOneWay(tiles, previousExit, castleStart, "魔王城へ");
+  let last = castleStart;
+  const castleNodes = [
+    { type: "event" as TileType, label: "魔王城回廊", x: 28, y: 62 },
+    { type: "treasure" as TileType, label: "封印の宝物庫", x: 72, y: 62 },
+    { type: "battle" as TileType, label: "魔王軍精鋭", x: 36, y: 38 },
+    { type: "battle" as TileType, label: "玉座前", x: 64, y: 34 },
+  ];
+  castleNodes.forEach((node) => {
+    const next = addTile(tiles, { ...node, stage: 4 });
+    connectOneWay(tiles, last, next, node.label);
+    last = next;
+  });
+  const demon = addTile(tiles, { type: "demon", label: "魔王", stage: 4, recommendedLevel: recommendedLevels[4], x: 50, y: 12 });
+  connectOneWay(tiles, last, demon, `魔王へ：推奨Lv${recommendedLevels[4]}`);
   return tiles;
 }
 
-function addStage(tiles: Tile[], stage: 1 | 2 | 3) {
-  const entry = tiles.length;
-  addRandomTiles(tiles, stage, Math.floor(stageLengths[stage] * 0.2), "中央");
-  const routeSplit = addTile(tiles, { type: "junction", label: `分岐${stage}-A`, stage });
-  const routeAStart = tiles.length;
-  addRandomTiles(tiles, stage, Math.floor(stageLengths[stage] * 0.28), "宝箱方面");
-  const routeAEnd = tiles.length - 1;
-  const routeBStart = tiles.length;
-  addRandomTiles(tiles, stage, Math.floor(stageLengths[stage] * 0.28), "戦闘方面");
-  const routeBEnd = tiles.length - 1;
-  const merge = addTile(tiles, { type: "empty", label: `合流${stage}`, stage });
-  addRandomTiles(tiles, stage, Math.floor(stageLengths[stage] * 0.18), "外周");
-  const bossSplit = addTile(tiles, { type: "junction", label: `中ボス分岐${stage}`, stage });
-  const boss = addTile(tiles, { type: "boss", label: `中ボス${stage}`, stage, recommendedLevel: recommendedLevels[stage] });
-  const village = addTile(tiles, { type: "village", label: `村${stage}`, stage });
+function addIslandStage(tiles: Tile[], stage: 1 | 2 | 3) {
+  const count = stageLengths[stage];
+  const centerX = 50;
+  const centerY = 50;
+  const ringRadiusX = 36;
+  const ringRadiusY = 31;
+  const ring: number[] = [];
 
-  tiles[routeSplit].connections = [routeAStart, routeBStart];
-  tiles[routeSplit].connectionLabels = ["左：宝箱方面", "右：戦闘方面"];
-  tiles[routeAEnd].connections = [merge];
-  tiles[routeBEnd].connections = [merge];
-  tiles[bossSplit].connections = [entry, boss];
-  tiles[bossSplit].connectionLabels = ["周回する：外周へ戻る", `中ボスへ向かう：推奨Lv${recommendedLevels[stage]}`];
-  tiles[boss].connections = [village];
+  for (let i = 0; i < count; i += 1) {
+    const angle = (-Math.PI / 2) + (Math.PI * 2 * i) / count;
+    const type: TileType = i === 0 ? "junction" : randomTile(stage);
+    const label = i === 0 ? `ステージ${stage}入口` : `S${stage}-${i}`;
+    ring.push(addTile(tiles, {
+      type,
+      label,
+      stage,
+      route: "island",
+      x: Math.round(centerX + Math.cos(angle) * ringRadiusX),
+      y: Math.round(centerY + Math.sin(angle) * ringRadiusY),
+    }));
+  }
+
+  for (let i = 0; i < ring.length; i += 1) {
+    connectTwoWay(tiles, ring[i], ring[(i + 1) % ring.length]);
+  }
+
+  const chordPairs: Array<[number, number]> = stage === 1
+    ? [[2, 7], [9, 14]]
+    : stage === 2
+      ? [[2, 8], [6, 13], [15, 21]]
+      : [[3, 10], [8, 16], [18, 25]];
+  chordPairs.forEach(([a, b]) => connectTwoWay(tiles, ring[a], ring[b]));
+
+  const rewardAnchors = stage === 1 ? [5, 12] : stage === 2 ? [4, 11, 18] : [5, 13, 22];
+  rewardAnchors.forEach((anchor, index) => {
+    const base = tiles[ring[anchor]];
+    const reward = addTile(tiles, {
+      type: index % 2 === 0 ? "treasure" : "event",
+      label: index % 2 === 0 ? `S${stage}-奥の宝箱` : `S${stage}-祠`,
+      stage,
+      route: "reward",
+      x: clamp((base.x ?? 50) + (index % 2 === 0 ? 8 : -8), 8, 92),
+      y: clamp((base.y ?? 50) + (base.y! < 50 ? -12 : 12), 8, 92),
+    });
+    connectTwoWay(tiles, ring[anchor], reward, "奥へ", "戻る");
+  });
+
+  const bossGateIndex = ring[stage === 1 ? 15 : stage === 2 ? 17 : 20];
+  tiles[bossGateIndex].type = "junction";
+  tiles[bossGateIndex].label = `中ボス方面${stage}`;
+  const gate = tiles[bossGateIndex];
+  const boss = addTile(tiles, {
+    type: "boss",
+    label: `中ボス${stage}`,
+    stage,
+    recommendedLevel: recommendedLevels[stage],
+    x: clamp((gate.x ?? 50) + 10, 8, 92),
+    y: clamp((gate.y ?? 50) + 18, 8, 92),
+  });
+  const village = addTile(tiles, {
+    type: "village",
+    label: `村${stage}`,
+    stage,
+    x: clamp((gate.x ?? 50) + 2, 8, 92),
+    y: clamp((gate.y ?? 50) + 34, 8, 92),
+  });
+  connectOneWay(tiles, bossGateIndex, boss, `中ボスへ：推奨Lv${recommendedLevels[stage]}`);
+  connectOneWay(tiles, boss, village, `村${stage}へ`);
+  return { entry: ring[0], village };
 }
 
 function addRandomTiles(tiles: Tile[], stage: 1 | 2 | 3, count: number, route: string) {
@@ -440,6 +551,20 @@ function addTile(tiles: Tile[], tile: Omit<Tile, "id">) {
   return tiles.length - 1;
 }
 
+function connectOneWay(tiles: Tile[], from: number, to: number, label?: string) {
+  const tile = tiles[from];
+  if (!tile.connections) tile.connections = [];
+  if (!tile.connectionLabels) tile.connectionLabels = [];
+  if (tile.connections.includes(to)) return;
+  tile.connections.push(to);
+  tile.connectionLabels.push(label ?? `${tiles[to]?.label ?? "道"}へ`);
+}
+
+function connectTwoWay(tiles: Tile[], a: number, b: number, labelAB?: string, labelBA?: string) {
+  connectOneWay(tiles, a, b, labelAB ?? `${tiles[b]?.label ?? "道"}へ`);
+  connectOneWay(tiles, b, a, labelBA ?? `${tiles[a]?.label ?? "道"}へ`);
+}
+
 function randomTile(stage: 1 | 2 | 3): TileType {
   const r = Math.random();
   if (stage === 1) return r < 0.5 ? "battle" : r < 0.73 ? "event" : r < 0.9 ? "treasure" : "empty";
@@ -447,29 +572,63 @@ function randomTile(stage: 1 | 2 | 3): TileType {
   return r < 0.58 ? "battle" : r < 0.78 ? "event" : r < 0.96 ? "treasure" : "empty";
 }
 
-function movePlayer(room: Room, player: Player, steps: number) {
+function movePlayer(room: Room, player: Player, steps: number, previous?: number) {
   let remaining = steps;
   while (remaining > 0 && player.position < room.tiles.length - 1) {
-    const options = getMoveOptions(room, player.position);
+    const options = getMoveOptions(room, player.position, remaining, previous);
     if (options.length > 1) {
       room.pendingMove = { playerId: player.id, remaining, from: player.position, options };
       room.notice = makeNotice("system", `${player.name} の分岐選択`, "道が分かれています。どちらへ進むか選んでください。", player);
+      setActivity(room, "branch", `${player.name} が分岐で進路選択中。`, player, { path: room.lastMovePath });
       return;
     }
-    player.position = options[0]?.to ?? player.position + 1;
+    const next = options[0]?.to ?? player.position + 1;
+    previous = player.position;
+    player.position = next;
+    room.lastMovePath = [...(room.lastMovePath ?? []), player.position];
     remaining -= 1;
+    setActivity(room, "move", `${player.name} が${steps - remaining}マス目へ進んだ。残り${remaining}マス。`, player, { path: room.lastMovePath });
     const tile = room.tiles[player.position];
     if (tile.type === "village" || tile.type === "boss" || tile.type === "demon") break;
   }
 }
 
-function getMoveOptions(room: Room, position: number) {
+function getMoveOptions(room: Room, position: number, remaining = 1, previous?: number) {
   const tile = room.tiles[position];
-  const connections = tile.connections?.length ? tile.connections : position < room.tiles.length - 1 ? [position + 1] : [];
-  return connections.map((to, index) => ({
+  const rawConnections = tile.connections?.length ? tile.connections : position < room.tiles.length - 1 ? [position + 1] : [];
+  const rawOptions = rawConnections.map((to, index) => ({ to, label: tile.connectionLabels?.[index] ?? `${room.tiles[to]?.label ?? "道"}へ` }));
+  const forwardOptions = rawOptions.filter((option) => option.to !== previous);
+  const options = forwardOptions.length ? forwardOptions : rawOptions;
+  return options.map(({ to, label }) => ({
     to,
-    label: tile.connectionLabels?.[index] ?? `${room.tiles[to]?.label ?? "道"}へ`,
+    label,
+    ...previewMove(room, position, to, remaining),
   }));
+}
+
+function previewMove(room: Room, from: number, to: number, remaining: number) {
+  let current = to;
+  let previous = from;
+  let rest = Math.max(0, remaining - 1);
+  const path = [to];
+  while (rest > 0) {
+    const tile = room.tiles[current];
+    if (!tile || tile.type === "village" || tile.type === "boss" || tile.type === "demon") break;
+    const raw = tile.connections?.length ? tile.connections : current < room.tiles.length - 1 ? [current + 1] : [];
+    const forward = raw.filter((next) => next !== previous);
+    const candidates = forward.length ? forward : raw;
+    if (candidates.length !== 1) break;
+    previous = current;
+    current = candidates[0];
+    path.push(current);
+    rest -= 1;
+  }
+  const preview = room.tiles[current];
+  return {
+    previewType: preview?.type,
+    previewLabel: preview?.label,
+    previewPath: path,
+  };
 }
 
 function resolveLanding(room: Room, player: Player) {
@@ -493,6 +652,7 @@ function resolveLanding(room: Room, player: Player) {
     player.stats.hp = player.stats.maxHp;
     player.stats.mp = player.stats.maxMp;
     room.logs.unshift(`${player.name} は ${tile.label} に到着した。`);
+    setActivity(room, "village", `${player.name} は ${tile.label} に到着した。`, player, { path: room.lastMovePath });
     room.notice = makeNotice("village", `${player.name} の村到着`, "回復、ショップ、売却、転職、装備変更をしてからターン終了できます。", player);
   }
   if (tile.type === "demon") startCombat(room, player, makeEnemy(4, "demon"));
@@ -500,8 +660,9 @@ function resolveLanding(room: Room, player: Player) {
 
 function startCombat(room: Room, player: Player, enemy: Enemy) {
   const levelText = enemy.recommendedLevel ? ` 推奨Lv${enemy.recommendedLevel}` : "";
-  room.combat = { playerId: player.id, enemy, log: [`${enemy.name}${levelText} が現れた！`] };
+  room.combat = { playerId: player.id, enemy, log: [`${enemy.name}${levelText} が現れた！`], phase: "idle", updatedAt: Date.now() };
   room.logs.unshift(`${player.name} は ${enemy.name}${levelText} と戦闘開始。`);
+  setActivity(room, enemy.kind === "mob" ? "battle" : "battle", `${player.name} は ${enemy.name}${levelText} と戦闘中。`, player);
   room.notice = makeNotice(enemy.kind === "mob" ? "battle" : "boss", `${player.name} の戦闘`, `${enemy.name}${levelText} と戦闘中です。`, player);
 }
 
@@ -513,12 +674,12 @@ function makeEnemy(stage: number, kind: Enemy["kind"]): Enemy {
       name: `中ボス${stage}`,
       kind,
       stage,
-      hp: 175 + stage * 85,
-      maxHp: 175 + stage * 85,
+      hp: 250 + stage * 105,
+      maxHp: 250 + stage * 105,
       mp: 20,
-      physical: 34 + stage * 15,
-      magical: 22 + stage * 10,
-      defense: 14 + stage * 8,
+      physical: 44 + stage * 18,
+      magical: 28 + stage * 12,
+      defense: 18 + stage * 9,
       exp: 90 + stage * 50,
       gold: 0,
       score: 30,
@@ -526,10 +687,10 @@ function makeEnemy(stage: number, kind: Enemy["kind"]): Enemy {
     };
   }
   if (kind === "demon") {
-    return { id: id(), name: "魔王", kind, stage, hp: 460, maxHp: 460, mp: 50, physical: 82, magical: 68, defense: 42, exp: 150, gold: 0, score: 100, recommendedLevel: recommendedLevels[4] };
+    return { id: id(), name: "魔王", kind, stage, hp: 720, maxHp: 720, mp: 50, physical: 104, magical: 86, defense: 52, exp: 150, gold: 0, score: 100, recommendedLevel: recommendedLevels[4] };
   }
-  const hp = 64 + stage * 34;
-  return { id: id(), name: `モンスター${stage}`, kind, stage, hp, maxHp: hp, mp: 0, physical: 15 + stage * 9, magical: 6 + stage * 5, defense: 8 + stage * 5, exp: 25 + stage * 20, gold: 25 + stage * 25, score: 0 };
+  const hp = 86 + stage * 42;
+  return { id: id(), name: `モンスター${stage}`, kind, stage, hp, maxHp: hp, mp: 0, physical: 20 + stage * 10, magical: 6 + stage * 5, defense: 10 + stage * 6, exp: 25 + stage * 20, gold: 25 + stage * 25, score: 0 };
 }
 
 function enemyTurn(room: Room, player: Player, combat: CombatState) {
@@ -537,6 +698,10 @@ function enemyTurn(room: Room, player: Player, combat: CombatState) {
   const damage = Math.max(1, combat.enemy.physical - Math.floor(pStats.defense * 0.75));
   player.stats.hp = clamp(player.stats.hp - damage, 0, player.stats.maxHp);
   combat.log.unshift(`${combat.enemy.name} の攻撃。${player.name} は ${damage} ダメージ。`);
+  combat.phase = "enemyAction";
+  combat.lastAction = `${combat.enemy.name} の攻撃。${player.name} は ${damage} ダメージ。`;
+  combat.updatedAt = Date.now();
+  setActivity(room, "battle", combat.lastAction, player);
   if (player.stats.hp <= 0) {
     const lost = Math.floor(player.stats.gold * 0.1);
     player.stats.gold -= lost;
@@ -557,6 +722,7 @@ function winCombat(room: Room, player: Player, enemy: Enemy) {
     player.defeatedBosses.push(enemy.stage);
     if (!room.players.some((p) => p.id !== player.id && p.defeatedBosses.includes(enemy.stage))) player.stats.score += 10;
     room.logs.unshift(`${player.name} は 中ボス${enemy.stage} を倒した！スコア +${enemy.score}`);
+    setActivity(room, "battle", `${player.name} は 中ボス${enemy.stage} を倒した。`, player);
     room.notice = makeNotice("boss", `${player.name} の中ボス結果`, `勝利！スコア+${enemy.score}。次の村へ進みます。`, player);
     movePlayer(room, player, 1);
     resolveLanding(room, player);
@@ -566,9 +732,11 @@ function winCombat(room: Room, player: Player, enemy: Enemy) {
     room.winnerId = player.id;
     finalizeScores(room);
     room.logs.unshift(`${player.name} が魔王を倒した！ゲーム終了。`);
+    setActivity(room, "battle", `${player.name} が魔王を倒した。ゲーム終了。`, player);
     room.notice = makeNotice("boss", `${player.name} の魔王結果`, "魔王撃破！ゲーム終了。", player);
   } else {
     room.logs.unshift(`${player.name} は ${enemy.name} を倒した。`);
+    setActivity(room, "battle", `${player.name} は ${enemy.name} を倒した。${enemy.exp}EXP と ${enemy.gold}G を獲得。`, player);
     room.notice = makeNotice("battle", `${player.name} の戦闘結果`, `勝利！${enemy.exp}EXP と ${enemy.gold}G を獲得。`, player);
     if (Math.random() < 0.2) giveDrop(room, player, enemy.stage);
   }
@@ -584,16 +752,19 @@ function openTreasure(room: Room, player: Player, stage: number) {
     player.luckyCharm = false;
     addGear(room, player, gear);
     room.logs.unshift(`${player.name} は宝箱から ${gear.name} を得た。`);
+    setActivity(room, "treasure", `${player.name} は宝箱から ${gear.name} を得た。`, player);
     room.notice = makeNotice("treasure", `${player.name} の宝箱結果`, `${gear.name} を入手した。${gearStats(gear)}`, player);
   } else if (r < 0.9) {
     const gold = 80 + stage * 40;
     player.stats.gold += gold;
     room.logs.unshift(`${player.name} は宝箱から ${gold}G を得た。`);
+    setActivity(room, "treasure", `${player.name} は宝箱から ${gold}G を得た。`, player);
     room.notice = makeNotice("treasure", `${player.name} の宝箱結果`, `${gold}G を入手した。`, player);
   } else {
     const item = makeItem(pick(Object.keys(itemCatalog) as ItemKey[]));
     addItem(room, player, item);
     room.logs.unshift(`${player.name} は宝箱から ${item.name} を得た。`);
+    setActivity(room, "treasure", `${player.name} は宝箱から ${item.name} を得た。`, player);
     room.notice = makeNotice("treasure", `${player.name} の宝箱結果`, `${item.name} を入手した。`, player);
   }
 }
@@ -605,6 +776,7 @@ function resolveEvent(room: Room, player: Player) {
   room.eventHistory.unshift(key);
   room.eventHistory = room.eventHistory.slice(0, 4);
   room.logs.unshift(text);
+  setActivity(room, "event", `${player.name} のイベント: ${text}`, player);
   room.notice = makeNotice("event", `${player.name} のイベント結果`, text, player);
 
   if (key === "merchantHelp") player.stats.gold += 50;
@@ -642,14 +814,17 @@ function beginTurn(room: Room) {
   const player = room.players[room.currentTurn];
   room.turnRolled = false;
   room.pendingMove = undefined;
+  room.notice = undefined;
+  room.lastMovePath = undefined;
   if (player.skipTurns > 0) {
     player.skipTurns -= 1;
     room.logs.unshift(`${player.name}は体調不良で次のターンを休んだ。`);
-    room.notice = makeNotice("event", `${player.name} の休み`, "体調不良で次のターンを休んだ。", player);
+    setActivity(room, "event", `${player.name}は体調不良で次のターンを休んだ。`, player);
     nextTurn(room);
     return;
   }
   room.logs.unshift(`${player.name} のターン。`);
+  setActivity(room, "turn", `${player.name} のターン。`, player);
 }
 
 function nextTurn(room: Room) {
@@ -735,7 +910,7 @@ function makeGear(stage: number, type: GearType, rarity: Rarity, base = 10 + sta
     physical: type === "weapon" ? power : type === "accessory" ? Math.floor(power / 3) : 0,
     magical: type === "weapon" ? Math.floor(power / 2) : type === "accessory" ? Math.floor(power / 3) : 0,
     defense: type === "armor" ? power : type === "accessory" ? Math.floor(power / 3) : 0,
-    value: power * (rarity === "legendary" ? 30 : rarity === "epic" ? 20 : rarity === "rare" ? 12 : 8),
+    value: rarityScore[rarity] * 100,
   };
 }
 
@@ -773,8 +948,12 @@ function finalizeScores(room: Room) {
 }
 
 function finalScore(player: Player) {
-  const legendary = [...player.inventory.weapons, ...player.inventory.armors, ...player.inventory.accessories, ...Object.values(player.equipment)].filter((g) => g?.rarity === "legendary").length;
-  return player.stats.score + player.stats.level * 2 + legendary * 5 + Math.floor(player.stats.gold / 100);
+  const gearById = new Map<string, Gear>();
+  [...player.inventory.weapons, ...player.inventory.armors, ...player.inventory.accessories, ...Object.values(player.equipment)]
+    .filter(Boolean)
+    .forEach((gear) => gearById.set(gear!.id, gear!));
+  const gearScore = [...gearById.values()].reduce((sum, gear) => sum + rarityScore[gear.rarity], 0);
+  return player.stats.score + player.stats.level * 2 + gearScore + Math.floor(player.stats.gold / 100);
 }
 
 function currentStage(room: Room, player: Player) {
