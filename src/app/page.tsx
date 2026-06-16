@@ -88,13 +88,13 @@ const tileLabels: Record<TileType, string> = {
 const tileGlyphs: Record<TileType, string> = {
   empty: "·",
   battle: "⚔",
-  treasure: "□",
-  event: "!",
+  treasure: "▣",
+  event: "?",
   start: "S",
-  village: "村",
-  boss: "B",
-  demon: "魔",
-  junction: "分",
+  village: "⌂",
+  boss: "♛",
+  demon: "◆",
+  junction: "◇",
 };
 
 const rarityLabels: Record<Gear["rarity"], string> = {
@@ -516,6 +516,7 @@ function ActivityPanel({ room }: { room: Room }) {
 }
 
 function GameMap({ room, me }: { room: Room; me: Player }) {
+  const [selectedIndex, setSelectedIndex] = useState<number | undefined>();
   const positions = useMemo(() => {
     const map = new globalThis.Map<number, Player[]>();
     room.players.forEach((p) => map.set(p.position, [...(map.get(p.position) || []), p]));
@@ -531,6 +532,12 @@ function GameMap({ room, me }: { room: Room; me: Player }) {
   );
   const visible = new Set(stageEntries.map(({ index }) => index));
   const path = new Set(room.lastMovePath ?? room.activity?.path ?? []);
+  const detailIndex = selectedIndex ?? focus.position;
+  const detailTile = room.tiles[detailIndex] ?? focusTile;
+  const nearby = (detailTile.connections ?? [])
+    .map((to) => room.tiles[to])
+    .filter(Boolean)
+    .slice(0, 3);
   const lines = stageEntries.flatMap(({ tile, index }) =>
     (tile.connections ?? [])
       .filter((to) => visible.has(to))
@@ -553,20 +560,22 @@ function GameMap({ room, me }: { room: Room; me: Player }) {
       </svg>
       {stageEntries.map(({ tile, index }) => (
           <div
-            className={`mapNode ${tile.type} ${me.position === index ? "mine" : ""} ${focus.position === index ? "focus" : ""} ${path.has(index) ? "pathNode" : ""}`}
+            className={`mapNode ${tile.type} ${me.position === index ? "mine" : ""} ${focus.position === index ? "focus" : ""} ${path.has(index) ? "pathNode" : ""} ${selectedIndex === index ? "selectedNode" : ""}`}
             key={`${tile.id}-${index}`}
             style={{ left: `${tile.x ?? 50}%`, top: `${tile.y ?? 50}%` }}
+            role="button"
+            aria-label={`${tileLabels[tile.type]} ${tile.label}`}
+            onClick={() => setSelectedIndex(index)}
           >
             <div className="nodeIcon">{tileGlyphs[tile.type]}</div>
-            <div>
-              <strong>{tileLabels[tile.type]}</strong>
-              <span>{tile.label}</span>
-              {tile.recommendedLevel && <em>推奨Lv{tile.recommendedLevel}</em>}
-            </div>
-            {tile.connections && tile.connections.length > 1 && <small>分岐</small>}
             <div className="pieces">{positions.get(index)?.map((p) => <i key={p.id}>P{p.slot}</i>)}</div>
           </div>
         ))}
+      <div className="mapInfoPanel">
+        <strong>{selectedIndex === undefined ? "現在地" : "選択マス"}: {tileLabels[detailTile.type]}</strong>
+        <span>ステージ {detailTile.stage || 1}{detailTile.recommendedLevel ? ` / 推奨Lv${detailTile.recommendedLevel}` : ""}</span>
+        <span>周辺: {nearby.length ? nearby.map((tile) => `${tileGlyphs[tile.type]} ${tileLabels[tile.type]}`).join(" / ") : "なし"}</span>
+      </div>
     </div>
   );
 }

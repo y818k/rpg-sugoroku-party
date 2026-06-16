@@ -358,7 +358,7 @@ h3 {
 .islandMap {
   position: relative;
   width: 100%;
-  min-height: 390px;
+  min-height: 430px;
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 8px;
   overflow: hidden;
@@ -386,27 +386,27 @@ h3 {
 
 .mapNode {
   position: absolute;
-  width: 74px;
-  min-height: 56px;
+  width: 38px;
+  height: 38px;
   transform: translate(-50%, -50%);
   display: grid;
-  grid-template-columns: 28px 1fr;
-  align-items: center;
-  gap: 5px;
-  padding: 6px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
+  place-items: center;
+  padding: 0;
+  border: 2px solid rgba(255, 255, 255, 0.18);
+  border-radius: 50%;
   background: #182018;
   z-index: 1;
+  box-shadow: 0 5px 12px rgba(0, 0, 0, 0.24);
 }
 
 .mapNode.mine {
   border-color: var(--accent);
-  box-shadow: inset 0 0 0 2px rgba(227, 198, 94, 0.22);
+  box-shadow: 0 0 0 4px rgba(227, 198, 94, 0.24), 0 5px 12px rgba(0, 0, 0, 0.24);
 }
 
 .mapNode.focus {
   outline: 3px solid rgba(99, 199, 162, 0.5);
+  z-index: 2;
 }
 
 .mapNode.pathNode {
@@ -414,69 +414,74 @@ h3 {
 }
 
 .mapNode.battle {
-  background: #241d20;
+  background: #6d3443;
 }
 
 .mapNode.treasure {
-  background: #252414;
+  background: #d4a735;
 }
 
 .mapNode.event {
-  background: #17242a;
+  background: #2f6e9b;
+}
+
+.mapNode.empty {
+  width: 24px;
+  height: 24px;
+  background: #52604d;
+}
+
+.mapNode.start {
+  background: #6a8e50;
 }
 
 .mapNode.village {
-  background: #183025;
+  background: #3d8d62;
 }
 
 .mapNode.junction {
-  background: #1d3120;
+  background: #315f4a;
   border-color: var(--accent-2);
+  border-radius: 8px;
 }
 
 .mapNode.boss,
 .mapNode.demon {
-  background: #331c1a;
+  background: #8a2d27;
+}
+
+.mapNode.demon {
+  background: #251416;
+  border-color: var(--danger);
+}
+
+.mapNode.selectedNode {
+  outline: 3px solid var(--blue);
+  z-index: 3;
 }
 
 .nodeIcon {
-  width: 28px;
-  height: 28px;
+  width: 100%;
+  height: 100%;
   display: grid;
   place-items: center;
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.08);
-  color: var(--accent);
+  border-radius: inherit;
+  color: #fff9e8;
+  font-size: 16px;
   font-weight: 900;
-}
-
-.mapNode div:nth-child(2) {
-  min-width: 0;
-  display: grid;
-  gap: 2px;
-}
-
-.mapNode strong {
-  font-size: 11px;
-}
-
-.mapNode span,
-.mapNode em,
-.mapNode small {
-  color: var(--muted);
-  font-size: 11px;
-  font-style: normal;
-}
-
-.mapNode small {
-  grid-column: 1 / -1;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.55);
 }
 
 .pieces {
+  position: absolute;
+  left: 50%;
+  bottom: -12px;
+  transform: translateX(-50%);
   display: flex;
   gap: 2px;
   flex-wrap: wrap;
-  justify-content: flex-end;
+  justify-content: center;
+  min-width: 48px;
 }
 
 .pieces i {
@@ -487,6 +492,31 @@ h3 {
   font-size: 10px;
   font-style: normal;
   font-weight: 900;
+}
+
+.mapInfoPanel {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 8px;
+  display: grid;
+  gap: 3px;
+  padding: 9px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  background: rgba(13, 19, 12, 0.9);
+  z-index: 4;
+}
+
+.mapInfoPanel strong {
+  color: var(--accent);
+  font-size: 12px;
+}
+
+.mapInfoPanel span {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.35;
 }
 
 .primaryAction {
@@ -665,10 +695,12 @@ h3 {
 
 .combatBeat.playerAction {
   border-color: var(--accent);
+  background: #251f11;
 }
 
 .combatBeat.enemyAction {
   border-color: var(--danger);
+  background: #281714;
 }
 
 .meter {
@@ -683,6 +715,7 @@ h3 {
   display: block;
   height: 100%;
   background: var(--danger);
+  transition: width 0.65s ease;
 }
 
 .player,

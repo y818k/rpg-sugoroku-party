@@ -269,12 +269,12 @@ export function combatCommand(roomCode: string, playerId: string, command: "atta
   }
 
   const skill = skillFor(player.job);
-  let damage = Math.max(1, pStats.physical - combat.enemy.defense);
+  let damage = calculateDamage(pStats.physical, combat.enemy.defense, 1, 0.55, 2);
   if (command === "skill") {
     if (player.stats.mp < skill.mp) return fail("MPが足りません。");
     player.stats.mp -= skill.mp;
     const atk = skill.type === "physical" ? pStats.physical : pStats.magical;
-    damage = Math.max(1, Math.floor(atk * skill.multiplier - combat.enemy.defense));
+    damage = calculateDamage(atk, combat.enemy.defense, skill.multiplier, 0.55, 2);
   }
 
   combat.enemy.hp = clamp(combat.enemy.hp - damage, 0, combat.enemy.maxHp);
@@ -674,12 +674,12 @@ function makeEnemy(stage: number, kind: Enemy["kind"]): Enemy {
       name: `中ボス${stage}`,
       kind,
       stage,
-      hp: 250 + stage * 105,
-      maxHp: 250 + stage * 105,
+      hp: 120 + stage * 55,
+      maxHp: 120 + stage * 55,
       mp: 20,
-      physical: 44 + stage * 18,
+      physical: 26 + stage * 9,
       magical: 28 + stage * 12,
-      defense: 18 + stage * 9,
+      defense: 10 + stage * 4,
       exp: 90 + stage * 50,
       gold: 0,
       score: 30,
@@ -687,15 +687,15 @@ function makeEnemy(stage: number, kind: Enemy["kind"]): Enemy {
     };
   }
   if (kind === "demon") {
-    return { id: id(), name: "魔王", kind, stage, hp: 720, maxHp: 720, mp: 50, physical: 104, magical: 86, defense: 52, exp: 150, gold: 0, score: 100, recommendedLevel: recommendedLevels[4] };
+    return { id: id(), name: "魔王", kind, stage, hp: 520, maxHp: 520, mp: 50, physical: 72, magical: 86, defense: 34, exp: 150, gold: 0, score: 100, recommendedLevel: recommendedLevels[4] };
   }
-  const hp = 86 + stage * 42;
-  return { id: id(), name: `モンスター${stage}`, kind, stage, hp, maxHp: hp, mp: 0, physical: 20 + stage * 10, magical: 6 + stage * 5, defense: 10 + stage * 6, exp: 25 + stage * 20, gold: 25 + stage * 25, score: 0 };
+  const hp = 28 + stage * 24;
+  return { id: id(), name: `モンスター${stage}`, kind, stage, hp, maxHp: hp, mp: 0, physical: 8 + stage * 6, magical: 6 + stage * 4, defense: 2 + stage * 2, exp: 25 + stage * 20, gold: 25 + stage * 25, score: 0 };
 }
 
 function enemyTurn(room: Room, player: Player, combat: CombatState) {
   const pStats = effectiveStats(player);
-  const damage = Math.max(1, combat.enemy.physical - Math.floor(pStats.defense * 0.75));
+  const damage = calculateDamage(combat.enemy.physical, pStats.defense, 1, combat.enemy.kind === "mob" ? 0.45 : 0.55, combat.enemy.kind === "mob" ? 1 : 2);
   player.stats.hp = clamp(player.stats.hp - damage, 0, player.stats.maxHp);
   combat.log.unshift(`${combat.enemy.name} の攻撃。${player.name} は ${damage} ダメージ。`);
   combat.phase = "enemyAction";
@@ -712,6 +712,12 @@ function enemyTurn(room: Room, player: Player, combat: CombatState) {
     room.combat = undefined;
     nextTurn(room);
   }
+}
+
+function calculateDamage(attack: number, defense: number, multiplier = 1, defenseRate = 0.55, minDamage = 1) {
+  const base = attack * multiplier - defense * defenseRate;
+  const randomMultiplier = 0.9 + Math.random() * 0.2;
+  return Math.max(minDamage, Math.round(base * randomMultiplier));
 }
 
 function winCombat(room: Room, player: Player, enemy: Enemy) {
