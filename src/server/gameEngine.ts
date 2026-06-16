@@ -165,8 +165,13 @@ export function chooseBranch(roomCode: string, playerId: string, choice: string)
     room.logs.unshift(`${player.name} は ${option.label} を選んだ。`);
     setActivity(room, "branch", `${player.name} が分岐で ${option.label} を選んだ。残り${remaining}マス。`, player, { path: room.lastMovePath });
     room.notice = makeNotice("system", `${player.name} の道選択`, `${option.label}へ進みます。残り${remaining}マス。`, player);
-    movePlayer(room, player, remaining, previous);
-    if (!room.pendingMove) resolveLanding(room, player);
+    const resolvedStop = isStopTile(room.tiles[player.position]);
+    if (resolvedStop) {
+      resolveLanding(room, player);
+    } else {
+      movePlayer(room, player, remaining, previous);
+    }
+    if (!resolvedStop && !room.pendingMove) resolveLanding(room, player);
     if (!room.pendingMove && !room.combat && room.phase === "playing" && !shouldHoldTurn(room, player)) nextTurn(room);
     return ok();
   }
@@ -479,6 +484,9 @@ function addIslandStage(tiles: Tile[], stage: 1 | 2 | 3) {
 
   for (let i = 0; i < count; i += 1) {
     const angle = (-Math.PI / 2) + (Math.PI * 2 * i) / count;
+    const wobbleX = Math.sin(i * 1.7 + stage) * 7;
+    const wobbleY = Math.cos(i * 1.3 + stage) * 6;
+    const radiusScale = 0.86 + ((i * 7 + stage) % 5) * 0.045;
     const type: TileType = i === 0 ? "junction" : randomTile(stage);
     const label = i === 0 ? `ステージ${stage}入口` : `S${stage}-${i}`;
     ring.push(addTile(tiles, {
@@ -486,8 +494,8 @@ function addIslandStage(tiles: Tile[], stage: 1 | 2 | 3) {
       label,
       stage,
       route: "island",
-      x: Math.round(centerX + Math.cos(angle) * ringRadiusX),
-      y: Math.round(centerY + Math.sin(angle) * ringRadiusY),
+      x: Math.round(clamp(centerX + Math.cos(angle) * ringRadiusX * radiusScale + wobbleX, 9, 91)),
+      y: Math.round(clamp(centerY + Math.sin(angle) * ringRadiusY * radiusScale + wobbleY, 10, 86)),
     }));
   }
 
@@ -588,8 +596,7 @@ function movePlayer(room: Room, player: Player, steps: number, previous?: number
     room.lastMovePath = [...(room.lastMovePath ?? []), player.position];
     remaining -= 1;
     setActivity(room, "move", `${player.name} が${steps - remaining}マス目へ進んだ。残り${remaining}マス。`, player, { path: room.lastMovePath });
-    const tile = room.tiles[player.position];
-    if (tile.type === "village" || tile.type === "boss" || tile.type === "demon") break;
+    if (isStopTile(room.tiles[player.position])) break;
   }
 }
 
@@ -613,7 +620,7 @@ function previewMove(room: Room, from: number, to: number, remaining: number) {
   const path = [to];
   while (rest > 0) {
     const tile = room.tiles[current];
-    if (!tile || tile.type === "village" || tile.type === "boss" || tile.type === "demon") break;
+    if (!tile || isStopTile(tile)) break;
     const raw = tile.connections?.length ? tile.connections : current < room.tiles.length - 1 ? [current + 1] : [];
     const forward = raw.filter((next) => next !== previous);
     const candidates = forward.length ? forward : raw;
@@ -658,6 +665,10 @@ function resolveLanding(room: Room, player: Player) {
   if (tile.type === "demon") startCombat(room, player, makeEnemy(4, "demon"));
 }
 
+function isStopTile(tile: Tile | undefined) {
+  return tile?.type === "village" || tile?.type === "boss" || tile?.type === "demon";
+}
+
 function startCombat(room: Room, player: Player, enemy: Enemy) {
   const levelText = enemy.recommendedLevel ? ` 推奨Lv${enemy.recommendedLevel}` : "";
   room.combat = { playerId: player.id, enemy, log: [`${enemy.name}${levelText} が現れた！`], phase: "idle", updatedAt: Date.now() };
@@ -689,8 +700,12 @@ function makeEnemy(stage: number, kind: Enemy["kind"]): Enemy {
   if (kind === "demon") {
     return { id: id(), name: "魔王", kind, stage, hp: 520, maxHp: 520, mp: 50, physical: 72, magical: 86, defense: 34, exp: 150, gold: 0, score: 100, recommendedLevel: recommendedLevels[4] };
   }
-  const hp = 28 + stage * 24;
-  return { id: id(), name: `モンスター${stage}`, kind, stage, hp, maxHp: hp, mp: 0, physical: 8 + stage * 6, magical: 6 + stage * 4, defense: 2 + stage * 2, exp: 25 + stage * 20, gold: 25 + stage * 25, score: 0 };
+  const mobStats = stage <= 1
+    ? { hp: 52, physical: 14, magical: 10, defense: 4 }
+    : stage === 2
+      ? { hp: 118, physical: 25, magical: 15, defense: 11 }
+      : { hp: 170, physical: 36, magical: 22, defense: 18 };
+  return { id: id(), name: `モンスター${stage}`, kind, stage, hp: mobStats.hp, maxHp: mobStats.hp, mp: 0, physical: mobStats.physical, magical: mobStats.magical, defense: mobStats.defense, exp: 25 + stage * 20, gold: 25 + stage * 25, score: 0 };
 }
 
 function enemyTurn(room: Room, player: Player, combat: CombatState) {
@@ -830,7 +845,9 @@ function beginTurn(room: Room) {
     return;
   }
   room.logs.unshift(`${player.name} のターン。`);
-  setActivity(room, "turn", `${player.name} のターン。`, player);
+  if (!room.activity || ["turn", "roll", "move", "branch", "system"].includes(room.activity.kind)) {
+    setActivity(room, "turn", `${player.name} のターン。`, player);
+  }
 }
 
 function nextTurn(room: Room) {
@@ -933,6 +950,7 @@ function rollRarity(stage: number, lucky: boolean): Rarity {
 }
 
 function levelUp(player: Player, room: Room) {
+  const gained: number[] = [];
   while (player.stats.exp >= player.stats.level * 50) {
     player.stats.exp -= player.stats.level * 50;
     player.stats.level += 1;
@@ -944,6 +962,10 @@ function levelUp(player: Player, room: Room) {
     player.stats.hp = player.stats.maxHp;
     player.stats.mp = player.stats.maxMp;
     room.logs.unshift(`${player.name} は Lv.${player.stats.level} になった。`);
+    gained.push(player.stats.level);
+  }
+  if (gained.length && room.activity) {
+    room.activity.text = `${room.activity.text} Lv${gained.join(" / Lv")} に上がった！`;
   }
 }
 

@@ -375,13 +375,18 @@ h3 {
 }
 
 .mapLinks line {
-  stroke: rgba(244, 246, 239, 0.24);
-  stroke-width: 0.7;
+  stroke: rgba(244, 246, 239, 0.34);
+  stroke-width: 0.9;
 }
 
 .mapLinks .activeLink {
   stroke: var(--accent);
   stroke-width: 1.4;
+}
+
+.mapLinks .candidateLink {
+  stroke: var(--accent-2);
+  stroke-width: 1.7;
 }
 
 .mapNode {
@@ -405,12 +410,21 @@ h3 {
 }
 
 .mapNode.focus {
-  outline: 3px solid rgba(99, 199, 162, 0.5);
+  outline: 4px solid rgba(99, 199, 162, 0.58);
   z-index: 2;
 }
 
 .mapNode.pathNode {
   border-color: var(--accent);
+}
+
+.mapNode.candidateNode {
+  outline: 4px solid rgba(99, 199, 162, 0.65);
+  z-index: 3;
+}
+
+.mapNode.previewNode {
+  box-shadow: 0 0 0 5px rgba(127, 185, 223, 0.22), 0 5px 12px rgba(0, 0, 0, 0.24);
 }
 
 .mapNode.battle {

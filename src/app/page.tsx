@@ -278,6 +278,7 @@ export default function Home() {
       <BottomNav
         panel={panel}
         setPanel={setPanel}
+        locked={!!room.pendingMove}
         canRoll={!!me && isMyTurn && !room.turnRolled && !room.combat && !room.pendingMove}
         onRoll={() => call("turn:roll")}
       />
@@ -391,10 +392,11 @@ function MainStage({
     );
   }
 
-  if (room.notice && room.notice.playerId === me.id) {
+  if (room.notice && room.notice.type !== "system") {
     return (
       <StageCard title={room.notice.title}>
         <NoticePanel notice={room.notice} />
+        {room.activity && <ActivityPanel room={room} />}
         <div className="miniDivider" />
         <GameMap room={room} me={me} />
         {isMyTurn && room.turnRolled && !inVillage && (
@@ -426,11 +428,13 @@ function StageCard({ title, children }: { title: string; children: React.ReactNo
 function BottomNav({
   panel,
   setPanel,
+  locked,
   canRoll,
   onRoll,
 }: {
   panel: AppPanel;
   setPanel: (panel: AppPanel) => void;
+  locked: boolean;
   canRoll: boolean;
   onRoll: () => void;
 }) {
@@ -440,19 +444,19 @@ function BottomNav({
         <span>🎲</span>
         ルーレット
       </button>
-      <button className={panel === "items" ? "selectedNav" : ""} onClick={() => setPanel("items")}>
+      <button disabled={locked} className={panel === "items" ? "selectedNav" : ""} onClick={() => setPanel("items")}>
         <span>＋</span>
         アイテム
       </button>
-      <button className={panel === "gear" ? "selectedNav" : ""} onClick={() => setPanel("gear")}>
+      <button disabled={locked} className={panel === "gear" ? "selectedNav" : ""} onClick={() => setPanel("gear")}>
         <span>⚙</span>
         装備
       </button>
-      <button className={panel === "map" || panel === "main" ? "selectedNav" : ""} onClick={() => setPanel("map")}>
+      <button disabled={locked} className={panel === "map" || panel === "main" ? "selectedNav" : ""} onClick={() => setPanel("map")}>
         <span>◇</span>
         マップ
       </button>
-      <button className={panel === "log" ? "selectedNav" : ""} onClick={() => setPanel("log")}>
+      <button disabled={locked} className={panel === "log" ? "selectedNav" : ""} onClick={() => setPanel("log")}>
         <span>≡</span>
         ログ
       </button>
@@ -532,6 +536,8 @@ function GameMap({ room, me }: { room: Room; me: Player }) {
   );
   const visible = new Set(stageEntries.map(({ index }) => index));
   const path = new Set(room.lastMovePath ?? room.activity?.path ?? []);
+  const branchTargets = new Set(room.pendingMove?.options.map((option) => option.to) ?? []);
+  const branchPreview = new Set(room.pendingMove?.options.flatMap((option) => option.previewPath ?? []) ?? []);
   const detailIndex = selectedIndex ?? focus.position;
   const detailTile = room.tiles[detailIndex] ?? focusTile;
   const nearby = (detailTile.connections ?? [])
@@ -555,12 +561,13 @@ function GameMap({ room, me }: { room: Room; me: Player }) {
           const a = getPoint(line.from);
           const b = getPoint(line.to);
           const highlighted = path.has(line.from) && path.has(line.to);
-          return <line className={highlighted ? "activeLink" : ""} key={`${line.from}-${line.to}`} x1={a.x} y1={a.y} x2={b.x} y2={b.y} />;
+          const candidate = !!room.pendingMove && line.from === room.pendingMove.from && branchTargets.has(line.to);
+          return <line className={`${highlighted ? "activeLink" : ""} ${candidate ? "candidateLink" : ""}`} key={`${line.from}-${line.to}`} x1={a.x} y1={a.y} x2={b.x} y2={b.y} />;
         })}
       </svg>
       {stageEntries.map(({ tile, index }) => (
           <div
-            className={`mapNode ${tile.type} ${me.position === index ? "mine" : ""} ${focus.position === index ? "focus" : ""} ${path.has(index) ? "pathNode" : ""} ${selectedIndex === index ? "selectedNode" : ""}`}
+            className={`mapNode ${tile.type} ${me.position === index ? "mine" : ""} ${focus.position === index ? "focus" : ""} ${path.has(index) ? "pathNode" : ""} ${branchTargets.has(index) ? "candidateNode" : ""} ${branchPreview.has(index) ? "previewNode" : ""} ${selectedIndex === index ? "selectedNode" : ""}`}
             key={`${tile.id}-${index}`}
             style={{ left: `${tile.x ?? 50}%`, top: `${tile.y ?? 50}%` }}
             role="button"
@@ -590,13 +597,13 @@ function BranchPanel({ room, me, canChoose, call }: { room: Room; me: Player; ca
     <div className="stack">
       <p className="hint">{room.pendingMove ? `残り${room.pendingMove.remaining}マス。進む道を選ぶと移動を続けます。` : "次に進む道を選んでください。"}</p>
       <div className="branchChoices">
-        {options.map((option) => {
+        {options.map((option, index) => {
           const destination = room.tiles[option.to];
           const bossRoute = destination?.type === "boss" || option.label.includes("中ボス");
           return (
             <button disabled={!canChoose} className={bossRoute ? "bossChoice" : "loopChoice"} key={`${option.to}-${option.label}`} onClick={() => call("branch:choose", { choice: String(option.to) })}>
-              {option.label}
-              <small>{option.previewType ? `${tileGlyphs[option.previewType]} ${tileLabels[option.previewType]}に止まる見込み` : destination ? `${tileLabels[destination.type]} / ${destination.label}${destination.recommendedLevel ? ` 推奨Lv${destination.recommendedLevel}` : ""}` : "道を進む"}</small>
+              道{index + 1}
+              <small>{option.previewType ? `${tileGlyphs[option.previewType]} ${tileLabels[option.previewType]}に止まる見込み` : destination ? `${tileGlyphs[destination.type]} ${tileLabels[destination.type]}方面` : "道を進む"}</small>
             </button>
           );
         })}
