@@ -298,8 +298,6 @@ export default function Home() {
         panel={panel}
         setPanel={setPanelSafely}
         locked={branchLocked}
-        canRoll={!!me && isMyTurn && !room.turnRolled && !room.combat && !room.pendingMove}
-        onRoll={() => call("turn:roll")}
       />
 
       {message && <div className="toast">{message}</div>}
@@ -461,18 +459,14 @@ function BottomNav({
   panel,
   setPanel,
   locked,
-  canRoll,
-  onRoll,
 }: {
   panel: AppPanel;
   setPanel: (panel: AppPanel) => void;
   locked: boolean;
-  canRoll: boolean;
-  onRoll: () => void;
 }) {
   return (
     <nav className="bottomNav" aria-label="主要メニュー">
-      <button onClick={onRoll} disabled={!canRoll}>
+      <button disabled={locked} className={panel === "main" ? "selectedNav" : ""} onClick={() => setPanel("main")}>
         <span>🎲</span>
         ルーレット
       </button>
@@ -525,7 +519,12 @@ function TurnHint({ room, me, isMyTurn, call }: { room: Room; me: Player; isMyTu
   if (room.turnRolled) {
     return <button className="primaryAction" onClick={() => call("turn:end")}>ターン終了</button>;
   }
-  return <p className="hint">下のルーレットを押して移動します。アイテムや装備は移動前に変更できます。</p>;
+  return (
+    <div className="stack">
+      <button className="primaryAction" onClick={() => call("turn:roll")}>ルーレットを回す</button>
+      <p className="hint">このボタンを押した時だけルーレットが回ります。アイテムや装備は移動前に変更できます。</p>
+    </div>
+  );
 }
 
 function NoticePanel({ notice, compact = false }: { notice: NonNullable<Room["notice"]>; compact?: boolean }) {
