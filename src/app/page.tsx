@@ -322,127 +322,138 @@ function MainStage({
 }) {
   const activeTile = room.tiles[me.position];
   const combat = room.combat;
-  const combatIsMine = combat?.playerId === me.id;
-  const inVillage = activeTile?.type === "village";
   const pendingPlayer = room.pendingMove ? room.players.find((p) => p.id === room.pendingMove?.playerId) : undefined;
   const onJunction = activeTile?.type === "junction" && isMyTurn;
 
+  return (
+    <div className="playfield">
+      <section className="mapZone" aria-label="マップ">
+        <GameMap room={room} me={me} compact />
+      </section>
+      <ActionZone
+        activeTile={activeTile}
+        combat={combat}
+        inVillage={activeTile?.type === "village"}
+        isMyTurn={isMyTurn}
+        me={me}
+        onJunction={onJunction}
+        panel={panel}
+        pendingPlayer={pendingPlayer}
+        room={room}
+        setPanel={setPanel}
+        call={call}
+      />
+      <InlineLog logs={room.logs} />
+    </div>
+  );
+}
+
+function ActionZone({
+  activeTile,
+  combat,
+  inVillage,
+  isMyTurn,
+  me,
+  onJunction,
+  panel,
+  pendingPlayer,
+  room,
+  setPanel,
+  call,
+}: {
+  activeTile: Room["tiles"][number];
+  combat: Room["combat"];
+  inVillage: boolean;
+  isMyTurn: boolean;
+  me: Player;
+  onJunction: boolean;
+  panel: AppPanel;
+  pendingPlayer?: Player;
+  room: Room;
+  setPanel: (panel: AppPanel) => void;
+  call: (event: string, payload?: Record<string, unknown>) => void;
+}) {
+  let title = "行動";
+  let content: React.ReactNode;
+
   if (room.pendingMove) {
     const canChooseBranch = room.pendingMove.playerId === me.id && isMyTurn;
-    return (
-      <StageCard title={canChooseBranch ? "進む道を選んでください" : "分岐選択待ち"}>
+    title = canChooseBranch ? "進む道を選ぶ" : "分岐選択待ち";
+    content = (
+      <>
         <p className="hint">
           {canChooseBranch
             ? "分岐選択中です。先に進む道を選んでください。"
-            : `${pendingPlayer ? `P${pendingPlayer.slot} ${pendingPlayer.name}` : "現在のプレイヤー"} が進む道を選択中です。`}
+            : pendingPlayer
+              ? "P" + pendingPlayer.slot + " " + pendingPlayer.name + " が進む道を選択中です。"
+              : "現在のプレイヤーが進む道を選択中です。"}
         </p>
-        <BranchPanel room={room} me={pendingPlayer ?? me} canChoose={canChooseBranch} call={call} />
-      </StageCard>
+        <BranchPanel room={room} me={pendingPlayer ?? me} canChoose={canChooseBranch} call={call} compact />
+      </>
     );
-  }
-
-  if (combat) {
-    return (
-      <StageCard title={combatIsMine ? "戦闘中" : "他プレイヤーが戦闘中"}>
-        <CombatPanel combat={combat} me={me} canAct={combatIsMine && isMyTurn} call={call} />
-      </StageCard>
-    );
-  }
-
-  if (onJunction) {
-    return (
-      <StageCard title="道を選ぶ">
-        <BranchPanel room={room} me={me} canChoose call={call} />
-      </StageCard>
-    );
-  }
-
-  if (room.pendingMove) {
-    return (
-      <StageCard title="分岐選択待ち">
-        <p className="hint">{pendingPlayer ? `P${pendingPlayer.slot} ${pendingPlayer.name}` : "現在のプレイヤー"} が進む道を選んでいます。</p>
-        <BranchPanel room={room} me={pendingPlayer ?? me} canChoose={false} call={call} />
-      </StageCard>
-    );
-  }
-
-  if (isMyTurn && inVillage && panel !== "gear" && panel !== "shop" && panel !== "sell" && panel !== "log" && panel !== "map") {
-    return (
-      <StageCard title="村で準備">
-        <VillagePanel me={me} call={call} setPanel={setPanel} />
-      </StageCard>
-    );
-  }
-
-  if (panel === "items") {
-    return (
-      <StageCard title="アイテム">
-        <ItemUsePanel me={me} disabled={!isMyTurn} turnRolled={room.turnRolled} inCombat={false} call={call} />
-      </StageCard>
-    );
-  }
-
-  if (panel === "gear") {
-    return (
-      <StageCard title="装備変更">
-        <GearPanel me={me} disabled={!isMyTurn} call={call} />
-      </StageCard>
-    );
-  }
-
-  if (panel === "shop") {
-    return (
-      <StageCard title="ショップ">
-        <ShopPanel disabled={!isMyTurn || !inVillage} call={call} />
-      </StageCard>
-    );
-  }
-
-  if (panel === "sell") {
-    return (
-      <StageCard title="売却">
-        <SellPanel me={me} disabled={!isMyTurn || !inVillage} call={call} />
-      </StageCard>
-    );
-  }
-
-  if (panel === "log") {
-    return (
-      <StageCard title="ログ/詳細">
-        <DetailPanel room={room} me={me} />
-      </StageCard>
-    );
-  }
-
-  if (panel === "map") {
-    return (
-      <StageCard title="マップ確認">
-        <MapPanel room={room} me={me} />
-      </StageCard>
-    );
-  }
-
-  if (room.notice && room.notice.type !== "system") {
-    return (
-      <StageCard title={room.notice.title}>
+  } else if (combat) {
+    const combatIsMine = combat.playerId === me.id;
+    title = combatIsMine ? "戦闘中" : "戦闘観戦";
+    content = <CombatPanel combat={combat} me={me} canAct={combatIsMine && isMyTurn} call={call} />;
+  } else if (onJunction) {
+    title = "道を選ぶ";
+    content = <BranchPanel room={room} me={me} canChoose call={call} compact />;
+  } else if (isMyTurn && inVillage && panel !== "gear" && panel !== "shop" && panel !== "sell" && panel !== "map") {
+    title = "村で準備";
+    content = <VillagePanel me={me} call={call} setPanel={setPanel} />;
+  } else if (panel === "items") {
+    title = "アイテム";
+    content = <ItemUsePanel me={me} disabled={!isMyTurn} turnRolled={room.turnRolled} inCombat={false} call={call} />;
+  } else if (panel === "gear") {
+    title = "装備変更";
+    content = <GearPanel me={me} disabled={!isMyTurn} call={call} />;
+  } else if (panel === "shop") {
+    title = "ショップ";
+    content = <ShopPanel disabled={!isMyTurn || !inVillage} call={call} />;
+  } else if (panel === "sell") {
+    title = "売却";
+    content = <SellPanel me={me} disabled={!isMyTurn || !inVillage} call={call} />;
+  } else if (panel === "map") {
+    title = "マップ確認";
+    content = <MapPanel room={room} me={me} compact />;
+  } else if (room.notice && room.notice.type !== "system") {
+    title = room.notice.title;
+    content = (
+      <>
         <NoticePanel notice={room.notice} />
         {room.activity && <ActivityPanel room={room} />}
-        <div className="miniDivider" />
-        <GameMap room={room} me={me} />
-        {isMyTurn && room.turnRolled && !inVillage && (
+        {isMyTurn && room.turnRolled && activeTile?.type !== "village" && (
           <button className="primaryAction" onClick={() => call("turn:end")}>ターン終了</button>
         )}
-      </StageCard>
+      </>
+    );
+  } else {
+    content = (
+      <>
+        {room.notice && <NoticePanel notice={room.notice} compact />}
+        {room.activity && <ActivityPanel room={room} />}
+        <TurnHint room={room} me={me} isMyTurn={isMyTurn} call={call} />
+      </>
     );
   }
 
   return (
-    <StageCard title="マップ">
-      {room.notice && <NoticePanel notice={room.notice} compact />}
-      {room.activity && <ActivityPanel room={room} />}
-      <GameMap room={room} me={me} />
-      <TurnHint room={room} me={me} isMyTurn={isMyTurn} call={call} />
-    </StageCard>
+    <section className="actionZone" aria-label={title}>
+      <div className="sectionTitle">{title}</div>
+      <div className="actionScroll stack">{content}</div>
+    </section>
+  );
+}
+
+function InlineLog({ logs }: { logs: string[] }) {
+  return (
+    <section className="inlineLog" aria-label="ログ">
+      <div className="sectionTitle">ログ</div>
+      <div className="inlineLogList">
+        {logs.slice(0, 3).map((log, index) => <p key={String(index) + log}>{log}</p>)}
+        {!logs.length && <p>まだログはありません。</p>}
+      </div>
+    </section>
   );
 }
 
@@ -478,13 +489,9 @@ function BottomNav({
         <span>⚙</span>
         装備
       </button>
-      <button disabled={locked} className={panel === "map" || panel === "main" ? "selectedNav" : ""} onClick={() => setPanel("map")}>
+      <button disabled={locked} className={panel === "map" ? "selectedNav" : ""} onClick={() => setPanel("map")}>
         <span>◇</span>
         マップ
-      </button>
-      <button disabled={locked} className={panel === "log" ? "selectedNav" : ""} onClick={() => setPanel("log")}>
-        <span>≡</span>
-        ログ
       </button>
     </nav>
   );
@@ -550,7 +557,7 @@ function ActivityPanel({ room }: { room: Room }) {
   );
 }
 
-function GameMap({ room, me }: { room: Room; me: Player }) {
+function GameMap({ room, me, compact = false }: { room: Room; me: Player; compact?: boolean }) {
   const [selectedIndex, setSelectedIndex] = useState<number | undefined>();
   const positions = useMemo(() => {
     const map = new globalThis.Map<number, Player[]>();
@@ -586,7 +593,7 @@ function GameMap({ room, me }: { room: Room; me: Player }) {
   };
 
   return (
-    <div className="islandMap">
+    <div className={`islandMap tileBoard ${compact ? "compactMap" : ""}`}>
       <svg className="mapLinks" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
         {lines.map((line) => {
           const a = getPoint(line.from);
@@ -618,7 +625,7 @@ function GameMap({ room, me }: { room: Room; me: Player }) {
   );
 }
 
-function BranchPanel({ room, me, canChoose, call }: { room: Room; me: Player; canChoose: boolean; call: (event: string, payload?: Record<string, unknown>) => void }) {
+function BranchPanel({ room, me, canChoose, call, compact = false }: { room: Room; me: Player; canChoose: boolean; call: (event: string, payload?: Record<string, unknown>) => void; compact?: boolean }) {
   const pending = room.pendingMove;
   const tile = room.tiles[pending?.from ?? me.position];
   const options: BranchOption[] = pending
@@ -748,7 +755,7 @@ function GearPanel({ me, disabled, call }: { me: Player; disabled: boolean; call
   );
 }
 
-function MapPanel({ room, me }: { room: Room; me: Player }) {
+function MapPanel({ room, me, compact = false }: { room: Room; me: Player; compact?: boolean }) {
   const currentTile = room.tiles[me.position];
   const options = room.pendingMove?.playerId === me.id
     ? room.pendingMove.options
