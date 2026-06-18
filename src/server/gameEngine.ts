@@ -209,6 +209,7 @@ export function useItem(roomCode: string, playerId: string, itemId: string) {
   if (!room || !player) return fail("プレイヤーが見つかりません。");
   const isCurrent = room.players[room.currentTurn]?.id === playerId;
   const inCombat = room.combat?.playerId === playerId;
+  if (room.pendingMove && !inCombat) return fail("先に道を選んでください。");
   const index = player.inventory.items.findIndex((item) => item.id === itemId);
   if (index < 0) return fail("アイテムがありません。");
   const item = player.inventory.items[index];
@@ -238,6 +239,7 @@ export function equipGear(roomCode: string, playerId: string, gearId: string) {
   const room = getRoom(roomCode);
   const player = room?.players.find((p) => p.id === playerId);
   if (!room || !player) return fail("プレイヤーが見つかりません。");
+  if (room.pendingMove) return fail("先に道を選んでください。");
   const gear = allGear(player).find((g) => g.id === gearId);
   if (!gear) return fail("装備がありません。");
   if (player.equipment[gear.type]?.id === gear.id) return ok("すでに装備中です。");
@@ -301,6 +303,7 @@ export function recoverAtVillage(roomCode: string, playerId: string) {
   const room = getRoom(roomCode);
   const player = room?.players.find((p) => p.id === playerId);
   if (!room || !player || room.tiles[player.position]?.type !== "village") return fail("村にいません。");
+  if (room.pendingMove) return fail("先に道を選んでください。");
   player.stats.hp = player.stats.maxHp;
   player.stats.mp = player.stats.maxMp;
   player.revivePosition = player.position;
@@ -314,6 +317,7 @@ export function buyShopItem(roomCode: string, playerId: string, itemKey: ItemKey
   const room = getRoom(roomCode);
   const player = room?.players.find((p) => p.id === playerId);
   const catalog = itemCatalog[itemKey];
+  if (room?.pendingMove) return fail("先に道を選んでください。");
   if (!room || !player || !catalog || room.tiles[player.position]?.type !== "village") return fail("購入できません。");
   if (player.inventory.items.length >= 10) return fail("アイテムがいっぱいです。");
   if (player.stats.gold < catalog.value) return fail("ゴールドが足りません。");
@@ -327,6 +331,7 @@ export function buyShopItem(roomCode: string, playerId: string, itemKey: ItemKey
 
 export function sellInventory(roomCode: string, playerId: string, itemOrGearId: string) {
   const room = getRoom(roomCode);
+  if (room?.pendingMove) return fail("先に道を選んでください。");
   const player = room?.players.find((p) => p.id === playerId);
   if (!room || !player || room.tiles[player.position]?.type !== "village") return fail("売却できません。");
   for (const key of ["weapons", "armors", "accessories", "items"] as const) {
@@ -348,6 +353,7 @@ export function sellInventory(roomCode: string, playerId: string, itemOrGearId: 
 
 export function changeJob(roomCode: string, playerId: string, job: Job) {
   const room = getRoom(roomCode);
+  if (room?.pendingMove) return fail("先に道を選んでください。");
   const player = room?.players.find((p) => p.id === playerId);
   if (!room || !player || room.tiles[player.position]?.type !== "village" || room.tiles[player.position].stage !== 1) return fail("村1でのみ転職できます。");
   if (player.changedJob) return fail("転職済みです。");

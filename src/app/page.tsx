@@ -136,10 +136,29 @@ export default function Home() {
   const current = room?.players[room.currentTurn];
   const activeTile = me && room ? room.tiles[me.position] : undefined;
   const isMyTurn = current?.id === playerId;
+  const branchLocked = !!room?.pendingMove;
 
   useEffect(() => {
     setPanel("main");
-  }, [room?.currentTurn, room?.combat?.playerId, room?.notice?.title, room?.pendingMove?.playerId]);
+  }, [
+    room?.currentTurn,
+    room?.combat?.playerId,
+    room?.notice?.title,
+    branchLocked,
+    room?.pendingMove?.playerId,
+    room?.pendingMove?.from,
+    room?.pendingMove?.remaining,
+    room?.pendingMove?.options.length,
+  ]);
+
+  const setPanelSafely = (nextPanel: AppPanel) => {
+    if (room?.pendingMove) {
+      setPanel("main");
+      setMessage("先に道を選んでください。");
+      return;
+    }
+    setPanel(nextPanel);
+  };
 
   const call = (event: string, payload: Record<string, unknown> = {}) => {
     socket.emit(event, { roomCode, playerId, ...payload }, (res: { ok: boolean; message?: string; roomCode?: string; playerId?: string }) => {
@@ -266,7 +285,7 @@ export default function Home() {
             room={room}
             me={me}
             panel={panel}
-            setPanel={setPanel}
+            setPanel={setPanelSafely}
             isMyTurn={isMyTurn}
             call={call}
           />
@@ -277,8 +296,8 @@ export default function Home() {
 
       <BottomNav
         panel={panel}
-        setPanel={setPanel}
-        locked={!!room.pendingMove}
+        setPanel={setPanelSafely}
+        locked={branchLocked}
         canRoll={!!me && isMyTurn && !room.turnRolled && !room.combat && !room.pendingMove}
         onRoll={() => call("turn:roll")}
       />
@@ -307,9 +326,22 @@ function MainStage({
   const combat = room.combat;
   const combatIsMine = combat?.playerId === me.id;
   const inVillage = activeTile?.type === "village";
-  const pendingMine = room.pendingMove?.playerId === me.id;
   const pendingPlayer = room.pendingMove ? room.players.find((p) => p.id === room.pendingMove?.playerId) : undefined;
   const onJunction = activeTile?.type === "junction" && isMyTurn;
+
+  if (room.pendingMove) {
+    const canChooseBranch = room.pendingMove.playerId === me.id && isMyTurn;
+    return (
+      <StageCard title={canChooseBranch ? "進む道を選んでください" : "分岐選択待ち"}>
+        <p className="hint">
+          {canChooseBranch
+            ? "分岐選択中です。先に進む道を選んでください。"
+            : `${pendingPlayer ? `P${pendingPlayer.slot} ${pendingPlayer.name}` : "現在のプレイヤー"} が進む道を選択中です。`}
+        </p>
+        <BranchPanel room={room} me={pendingPlayer ?? me} canChoose={canChooseBranch} call={call} />
+      </StageCard>
+    );
+  }
 
   if (combat) {
     return (
@@ -319,7 +351,7 @@ function MainStage({
     );
   }
 
-  if (pendingMine || onJunction) {
+  if (onJunction) {
     return (
       <StageCard title="道を選ぶ">
         <BranchPanel room={room} me={me} canChoose call={call} />
@@ -588,9 +620,10 @@ function GameMap({ room, me }: { room: Room; me: Player }) {
 }
 
 function BranchPanel({ room, me, canChoose, call }: { room: Room; me: Player; canChoose: boolean; call: (event: string, payload?: Record<string, unknown>) => void }) {
-  const tile = room.tiles[me.position];
-  const options: BranchOption[] = room.pendingMove?.playerId === me.id
-    ? room.pendingMove.options
+  const pending = room.pendingMove;
+  const tile = room.tiles[pending?.from ?? me.position];
+  const options: BranchOption[] = pending
+    ? pending.options
     : (tile.connections ?? []).map((to, index) => ({ to, label: tile.connectionLabels?.[index] ?? `${room.tiles[to]?.label ?? "道"}へ` }));
 
   return (
