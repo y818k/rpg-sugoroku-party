@@ -139,11 +139,13 @@ export function rollRoulette(roomCode: string, playerId: string) {
   room.turnRolled = true;
   room.lastMovePath = [player.position];
   setActivity(room, "roll", `${player.name} がルーレットで ${raw} を出した。${move}マス進む。`, player, { roll: raw, move, path: room.lastMovePath });
-  movePlayer(room, player, move);
   room.logs.unshift(`${player.name} のルーレットは ${raw}、${move} マス進んだ。`);
 
-  if (!room.pendingMove) resolveLanding(room, player);
-  if (!room.pendingMove && !room.combat && room.phase === "playing" && !shouldHoldTurn(room, player)) nextTurn(room);
+  const destinations = getReachableDestinations(room, player.position, move);
+  if (!destinations.length) return fail("No reachable destination.");
+  room.pendingMove = { playerId: player.id, remaining: move, from: player.position, options: destinations };
+  room.notice = makeNotice("system", `${player.name} destination`, "Select a highlighted destination.", player);
+  setActivity(room, "branch", `${player.name} is choosing a destination.`, player, { roll: raw, move, path: room.lastMovePath });
   return ok();
 }
 
@@ -156,38 +158,21 @@ export function chooseBranch(roomCode: string, playerId: string, choice: string)
   if (Number.isNaN(destination)) return fail("選べない道です。");
 
   if (room.pendingMove?.playerId === playerId) {
-    const option = room.pendingMove.options.find((entry) => entry.to === destination);
-    if (!option) return fail("選べない道です。");
-    const previous = room.pendingMove.from;
-    const remaining = Math.max(0, room.pendingMove.remaining - 1);
+    const recalculated = getReachableDestinations(room, player.position, room.pendingMove.remaining);
+    const option = recalculated.find((entry) => entry.to === destination);
+    if (!option) return fail("Invalid destination.");
+    const path = option.previewPath?.length ? option.previewPath : [option.to];
     room.pendingMove = undefined;
-    room.lastMovePath = [...(room.lastMovePath ?? []), option.to];
+    room.lastMovePath = [player.position, ...path];
     player.position = option.to;
-    room.logs.unshift(`${player.name} は ${option.label} を選んだ。`);
-    setActivity(room, "branch", `${player.name} が分岐で ${option.label} を選んだ。残り${remaining}マス。`, player, { path: room.lastMovePath });
-    room.notice = makeNotice("system", `${player.name} の道選択`, `${option.label}へ進みます。残り${remaining}マス。`, player);
-    const resolvedStop = isStopTile(room.tiles[player.position]);
-    if (resolvedStop) {
-      resolveLanding(room, player);
-    } else {
-      movePlayer(room, player, remaining, previous);
-    }
-    if (!resolvedStop && !room.pendingMove) resolveLanding(room, player);
+    room.logs.unshift(`${player.name} moved to ${option.label}.`);
+    setActivity(room, "move", `${player.name} moved to ${option.label}.`, player, { path: room.lastMovePath });
+    resolveLanding(room, player);
     if (!room.pendingMove && !room.combat && room.phase === "playing" && !shouldHoldTurn(room, player)) nextTurn(room);
     return ok();
   }
 
-  const tile = room.tiles[player.position];
-  if (!tile?.connections?.includes(destination)) return fail("選べない道です。");
-  room.lastMovePath = [player.position, destination];
-  player.position = destination;
-  const selected = room.tiles[destination];
-  room.logs.unshift(`${player.name} は ${selected.label} へ向かった。`);
-  setActivity(room, "branch", `${player.name} が ${selected.label} へ向かった。`, player, { path: room.lastMovePath });
-  room.notice = makeNotice(selected.type === "boss" ? "boss" : "system", `${player.name} の道選択`, `${selected.label}へ進みます。`, player);
-  resolveLanding(room, player);
-  if (!room.combat && room.phase === "playing" && !shouldHoldTurn(room, player)) nextTurn(room);
-  return ok();
+  return fail("No pending destination.");
 }
 
 export function endTurn(roomCode: string, playerId: string) {
@@ -643,6 +628,42 @@ function randomTile(stage: 1 | 2 | 3): TileType {
   return r < 0.58 ? "battle" : r < 0.78 ? "event" : r < 0.96 ? "treasure" : "empty";
 }
 
+function getReachableDestinations(room: Room, start: number, steps: number): NonNullable<Room["pendingMove"]>["options"] {
+  const results = new Map<number, NonNullable<Room["pendingMove"]>["options"][number]>();
+  const visit = (current: number, remaining: number, path: number[], previous?: number) => {
+    const tile = room.tiles[current];
+    if (!tile || tile.passable === false) return;
+    if (path.length > 0 && isStopTile(tile)) {
+      results.set(current, {
+        to: current,
+        label: tile.label,
+        previewType: tile.type,
+        previewLabel: tile.label,
+        previewPath: path,
+      });
+      return;
+    }
+    if (remaining === 0) {
+      if (tile.stoppable !== false) {
+        results.set(current, {
+          to: current,
+          label: tile.label,
+          previewType: tile.type,
+          previewLabel: tile.label,
+          previewPath: path,
+        });
+      }
+      return;
+    }
+    const raw = (tile.connections ?? []).filter((next) => room.tiles[next]?.passable !== false);
+    const forward = raw.filter((next) => next !== previous);
+    const nextTiles = forward.length ? forward : raw;
+    nextTiles.forEach((next) => visit(next, remaining - 1, [...path, next], current));
+  };
+  visit(start, steps, []);
+  return [...results.values()];
+}
+
 function movePlayer(room: Room, player: Player, steps: number, previous?: number) {
   let remaining = steps;
   while (remaining > 0 && player.position < room.tiles.length - 1) {
@@ -706,13 +727,6 @@ function resolveLanding(room: Room, player: Player) {
   if (tile.type === "battle") startCombat(room, player, makeEnemy(tile.stage, "mob"));
   if (tile.type === "treasure") openTreasure(room, player, tile.stage);
   if (tile.type === "event") resolveEvent(room, player);
-  if (tile.type === "junction") {
-    const options = getMoveOptions(room, player.position);
-    if (options.length > 1) {
-      room.pendingMove = { playerId: player.id, remaining: 0, from: player.position, options };
-      room.notice = makeNotice("system", `${player.name} の分岐選択`, "道が分かれています。どちらへ進むか選んでください。", player);
-    }
-  }
   if (tile.type === "boss") {
     if (player.defeatedBosses.includes(tile.stage)) movePlayer(room, player, 1);
     else startCombat(room, player, makeEnemy(tile.stage, "boss"));

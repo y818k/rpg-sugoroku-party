@@ -330,24 +330,44 @@ function MainStage({
     return <BattleStage combat={combat} actor={actor} me={me} canAct={combat.playerId === me.id && isMyTurn} call={call} />;
   }
 
+  if (!room.pendingMove && panel === "items") {
+    return (
+      <ModeStage title="Items" onBack={() => setPanel("main")}>
+        <ItemUsePanel me={me} disabled={!isMyTurn} turnRolled={room.turnRolled} inCombat={false} call={call} />
+      </ModeStage>
+    );
+  }
+
+  if (!room.pendingMove && panel === "gear") {
+    return (
+      <ModeStage title="Equipment" onBack={() => setPanel("main")}>
+        <GearPanel me={me} disabled={!isMyTurn} call={call} />
+      </ModeStage>
+    );
+  }
+
+  const showAction = !!room.pendingMove || (isMyTurn && activeTile?.type === "village") || panel === "map" || panel === "shop" || panel === "sell" || (!!room.notice && room.notice.type !== "system");
+
   return (
-    <div className="playfield">
-      <section className="mapZone" aria-label="マップ">
-        <GameMap room={room} me={me} compact />
+    <div className={`playfield ${showAction ? "" : "mapOnly"}`}>
+      <section className="mapZone" aria-label="Map">
+        <GameMap room={room} me={me} compact canChooseDestination={isMyTurn && room.pendingMove?.playerId === me.id} call={call} />
       </section>
-      <ActionZone
-        activeTile={activeTile}
-        combat={combat}
-        inVillage={activeTile?.type === "village"}
-        isMyTurn={isMyTurn}
-        me={me}
-        onJunction={onJunction}
-        panel={panel}
-        pendingPlayer={pendingPlayer}
-        room={room}
-        setPanel={setPanel}
-        call={call}
-      />
+      {showAction && (
+        <ActionZone
+          activeTile={activeTile}
+          combat={combat}
+          inVillage={activeTile?.type === "village"}
+          isMyTurn={isMyTurn}
+          me={me}
+          onJunction={onJunction}
+          panel={panel}
+          pendingPlayer={pendingPlayer}
+          room={room}
+          setPanel={setPanel}
+          call={call}
+        />
+      )}
       <InlineLog logs={room.logs} />
     </div>
   );
@@ -455,7 +475,7 @@ function InlineLog({ logs }: { logs: string[] }) {
     <section className="inlineLog" aria-label="ログ">
       <div className="sectionTitle">ログ</div>
       <div className="inlineLogList">
-        {logs.slice(0, 3).map((log, index) => <p key={String(index) + log}>{log}</p>)}
+        {logs.slice(0, 5).map((log, index) => <p key={String(index) + log}>{log}</p>)}
         {!logs.length && <p>まだログはありません。</p>}
       </div>
     </section>
@@ -468,6 +488,18 @@ function StageCard({ title, children }: { title: string; children: React.ReactNo
       <div className="stageTitle">{title}</div>
       <div className="stageScroll">{children}</div>
     </div>
+  );
+}
+
+function ModeStage({ title, children, onBack }: { title: string; children: React.ReactNode; onBack: () => void }) {
+  return (
+    <section className="modeStage" aria-label={title}>
+      <div className="modeHeader">
+        <strong>{title}</strong>
+        <button onClick={onBack}>戻る</button>
+      </div>
+      <div className="modeScroll">{children}</div>
+    </section>
   );
 }
 
@@ -597,7 +629,7 @@ function ActivityPanel({ room }: { room: Room }) {
   );
 }
 
-function GameMap({ room, me, compact = false }: { room: Room; me: Player; compact?: boolean }) {
+function GameMap({ room, me, compact = false, canChooseDestination = false, call }: { room: Room; me: Player; compact?: boolean; canChooseDestination?: boolean; call?: (event: string, payload?: Record<string, unknown>) => void }) {
   const [selectedIndex, setSelectedIndex] = useState<number | undefined>();
   const positions = useMemo(() => {
     const map = new globalThis.Map<number, Player[]>();
@@ -616,12 +648,6 @@ function GameMap({ room, me, compact = false }: { room: Room; me: Player; compac
   const path = new Set(room.lastMovePath ?? room.activity?.path ?? []);
   const branchTargets = new Set(room.pendingMove?.options.map((option) => option.to) ?? []);
   const branchPreview = new Set(room.pendingMove?.options.flatMap((option) => option.previewPath ?? []) ?? []);
-  const detailIndex = selectedIndex ?? focus.position;
-  const detailTile = room.tiles[detailIndex] ?? focusTile;
-  const nearby = (detailTile.connections ?? [])
-    .map((to) => room.tiles[to])
-    .filter(Boolean)
-    .slice(0, 3);
   const lines = stageEntries.flatMap(({ tile, index }) =>
     (tile.connections ?? [])
       .filter((to) => visible.has(to))
@@ -643,6 +669,18 @@ function GameMap({ room, me, compact = false }: { room: Room; me: Player; compac
     const tile = room.tiles[index];
     return { x: tile.x ?? 50, y: tile.y ?? 50 };
   };
+  const lineInPreview = (from: number, to: number) =>
+    room.pendingMove?.options.some((option) => {
+      const candidatePath = [room.pendingMove?.from, ...(option.previewPath ?? [])].filter((value): value is number => typeof value === "number");
+      return candidatePath.some((node, index) => node === from && candidatePath[index + 1] === to);
+    }) ?? false;
+  const chooseTile = (index: number) => {
+    if (canChooseDestination && branchTargets.has(index)) {
+      call?.("branch:choose", { choice: String(index) });
+      return;
+    }
+    setSelectedIndex(index);
+  };
 
   return (
     <div className={`islandMap tileBoard ${compact ? "compactMap" : ""}`}>
@@ -656,7 +694,7 @@ function GameMap({ room, me, compact = false }: { room: Room; me: Player; compac
           const a = getPoint(line.from);
           const b = getPoint(line.to);
           const highlighted = path.has(line.from) && path.has(line.to);
-          const candidate = !!room.pendingMove && line.from === room.pendingMove.from && branchTargets.has(line.to);
+          const candidate = lineInPreview(line.from, line.to);
           return <line className={`${highlighted ? "activeLink" : ""} ${candidate ? "candidateLink" : ""}`} key={`${line.from}-${line.to}`} x1={a.x} y1={a.y} x2={b.x} y2={b.y} />;
         })}
       </svg>
@@ -669,17 +707,12 @@ function GameMap({ room, me, compact = false }: { room: Room; me: Player; compac
             data-terrain={tile.terrain ?? "road"}
             role="button"
             aria-label={`${tileLabels[tile.type]} ${tile.label}`}
-            onClick={() => setSelectedIndex(index)}
+            onClick={() => chooseTile(index)}
           >
             <div className="nodeIcon">{tileGlyphs[tile.type]}</div>
             <div className="pieces">{positions.get(index)?.map((p) => <i key={p.id}>P{p.slot}</i>)}</div>
           </div>
         ))}
-      <div className="mapInfoPanel">
-        <strong>{selectedIndex === undefined ? "現在地" : "選択マス"}: {tileLabels[detailTile.type]}</strong>
-        <span>ステージ {detailTile.stage || 1}{detailTile.recommendedLevel ? ` / 推奨Lv${detailTile.recommendedLevel}` : ""}</span>
-        <span>周辺: {nearby.length ? nearby.map((tile) => `${tileGlyphs[tile.type]} ${tileLabels[tile.type]}`).join(" / ") : "なし"}</span>
-      </div>
     </div>
   );
 }
@@ -690,6 +723,14 @@ function BranchPanel({ room, me, canChoose, call, compact = false }: { room: Roo
   const options: BranchOption[] = pending
     ? pending.options
     : (tile.connections ?? []).map((to, index) => ({ to, label: tile.connectionLabels?.[index] ?? `${room.tiles[to]?.label ?? "道"}へ` }));
+
+  if (compact && pending) {
+    return (
+      <div className="stack compactBranchHint">
+        <p className="hint">Tap a highlighted destination on the map.</p>
+      </div>
+    );
+  }
 
   return (
     <div className="stack">

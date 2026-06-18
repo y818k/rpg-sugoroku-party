@@ -186,8 +186,12 @@ h3 {
   height: 100%;
   min-height: 0;
   display: grid;
-  grid-template-rows: minmax(210px, 42%) minmax(150px, 1fr) 72px;
+  grid-template-rows: minmax(190px, 42%) minmax(120px, 1fr) minmax(112px, 128px);
   gap: 7px;
+}
+
+.playfield.mapOnly {
+  grid-template-rows: minmax(0, 1fr) minmax(112px, 128px);
 }
 
 .mapZone,
@@ -226,10 +230,11 @@ h3 {
 
 .inlineLogList {
   min-height: 0;
-  overflow: hidden;
+  overflow: auto;
   display: grid;
   gap: 3px;
   padding: 6px 8px;
+  align-content: start;
 }
 
 .inlineLogList p {
@@ -238,7 +243,8 @@ h3 {
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
+  line-height: 1.55;
 }
 
 .stageCard {
@@ -261,6 +267,42 @@ h3 {
 }
 
 .stageScroll {
+  min-height: 0;
+  overflow: auto;
+  padding: 10px;
+}
+
+.modeStage {
+  height: 100%;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto 1fr;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+.modeHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+}
+
+.modeHeader strong {
+  color: var(--accent);
+  font-size: 14px;
+}
+
+.modeHeader button {
+  min-height: 34px;
+  padding: 6px 12px;
+}
+
+.modeScroll {
   min-height: 0;
   overflow: auto;
   padding: 10px;
@@ -709,12 +751,24 @@ h3 {
 }
 
 .mapNode.candidateNode {
-  outline: 4px solid rgba(99, 199, 162, 0.65);
-  z-index: 3;
+  outline: 5px solid rgba(99, 199, 162, 0.72);
+  z-index: 5;
+  cursor: pointer;
+  animation: candidatePulse 1.05s ease-in-out infinite;
 }
 
 .mapNode.previewNode {
   box-shadow: 0 0 0 5px rgba(127, 185, 223, 0.22), 0 5px 12px rgba(0, 0, 0, 0.24);
+}
+
+@keyframes candidatePulse {
+  0%,
+  100% {
+    filter: brightness(1);
+  }
+  50% {
+    filter: brightness(1.35);
+  }
 }
 
 .mapNode.battle {
