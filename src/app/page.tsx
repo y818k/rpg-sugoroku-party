@@ -346,7 +346,7 @@ function MainStage({
     );
   }
 
-  const showAction = !!room.pendingMove || (isMyTurn && activeTile?.type === "village") || panel === "map" || panel === "shop" || panel === "sell" || (!!room.notice && room.notice.type !== "system");
+  const showAction = panel === "main" || !!room.pendingMove || (isMyTurn && activeTile?.type === "village") || panel === "shop" || panel === "sell" || (!!room.notice && room.notice.type !== "system");
 
   return (
     <div className={`playfield ${showAction ? "" : "mapOnly"}`}>
