@@ -266,6 +266,174 @@ h3 {
   padding: 10px;
 }
 
+.battleStage {
+  height: 100%;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(220px, 1fr) auto auto minmax(72px, 18%);
+  gap: 7px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background:
+    radial-gradient(circle at 50% 48%, rgba(227, 198, 94, 0.16), transparent 26%),
+    linear-gradient(180deg, #102018, #0a100d);
+}
+
+.battleBanner {
+  justify-self: center;
+  margin-top: 8px;
+  padding: 6px 28px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--accent);
+  background: rgba(15, 18, 13, 0.88);
+  font-weight: 900;
+  letter-spacing: 0;
+}
+
+.battleArena {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 70px minmax(0, 1fr);
+  align-items: end;
+  gap: 8px;
+  padding: 8px 12px 4px;
+  background:
+    radial-gradient(circle at 20% 72%, rgba(99, 199, 162, 0.18), transparent 18%),
+    radial-gradient(circle at 78% 70%, rgba(219, 93, 74, 0.16), transparent 20%),
+    linear-gradient(180deg, rgba(31, 48, 37, 0.3), rgba(14, 20, 13, 0.94));
+}
+
+.battleActor {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+  justify-items: center;
+  text-align: center;
+}
+
+.battleActor strong,
+.battleActor small {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.battleHp {
+  width: min(132px, 100%);
+  height: 10px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.battleHp span {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, #48b968, #92e06d);
+  transition: width 0.45s ease;
+}
+
+.enemyHp span {
+  background: linear-gradient(90deg, #c7433a, #eb8a5e);
+}
+
+.battleSprite {
+  width: clamp(76px, 25vw, 110px);
+  aspect-ratio: 1;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.06);
+  font-size: clamp(38px, 13vw, 58px);
+}
+
+.playerSprite {
+  transform: translateX(4px);
+}
+
+.enemySprite {
+  transform: translateX(-4px);
+}
+
+.battleImpact {
+  align-self: center;
+  display: grid;
+  place-items: center;
+  gap: 4px;
+  color: var(--accent);
+}
+
+.battleImpact b {
+  min-width: 52px;
+  min-height: 52px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: rgba(227, 198, 94, 0.16);
+  font-size: 28px;
+  color: #ff9b64;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.7);
+}
+
+.battleImpact span {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.battleMessage {
+  margin: 0 10px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(13, 19, 12, 0.92);
+  text-align: center;
+}
+
+.battleMessage p {
+  margin: 0;
+  color: var(--text);
+  line-height: 1.45;
+}
+
+.compactCombatPanel {
+  gap: 7px;
+  padding: 0 10px;
+}
+
+.compactCombatPanel .enemyBox,
+.compactCombatPanel > .log {
+  display: none;
+}
+
+.compactCombatPanel .combatActions {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.compactCombatPanel .compactItems {
+  max-height: 48px;
+  overflow: auto;
+}
+
+.battleLog {
+  min-height: 0;
+  overflow: hidden;
+  margin: 0 10px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(13, 19, 12, 0.85);
+}
+
+.battleLog .log {
+  max-height: 100%;
+  border: 0;
+  background: transparent;
+}
+
 .bottomNav {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -442,16 +610,63 @@ h3 {
   background-size: 10% 16.66%, 10% 16.66%, auto, auto;
 }
 
+.tileLayer {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: repeat(10, minmax(0, 1fr));
+  grid-template-rows: repeat(6, minmax(0, 1fr));
+}
+
+.boardTile {
+  min-width: 0;
+  min-height: 0;
+  border: 1px solid rgba(255, 255, 255, 0.045);
+  background: #1d2a19;
+}
+
+.boardTile.grass {
+  background:
+    radial-gradient(circle at 30% 25%, rgba(204, 231, 126, 0.16), transparent 16%),
+    linear-gradient(145deg, #1f321c, #142214);
+}
+
+.boardTile.road {
+  background:
+    linear-gradient(135deg, rgba(245, 215, 152, 0.2), transparent 48%),
+    #5c5238;
+  box-shadow: inset 0 0 0 2px rgba(234, 210, 151, 0.12);
+}
+
+.boardTile.rock {
+  background:
+    radial-gradient(circle at 45% 42%, #65705e 0 18%, transparent 20%),
+    linear-gradient(145deg, #293026, #172018);
+}
+
+.boardTile.tree {
+  background:
+    radial-gradient(circle at 50% 38%, #2c6530 0 22%, transparent 24%),
+    linear-gradient(145deg, #1b3119, #132113);
+}
+
+.boardTile.blockedTile {
+  opacity: 0.78;
+}
+
 .mapLinks {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
+  z-index: 2;
 }
 
 .mapLinks line {
-  stroke: rgba(244, 246, 239, 0.34);
-  stroke-width: 0.9;
+  stroke: rgba(214, 194, 124, 0.52);
+  stroke-width: 1.15;
+  stroke-linecap: round;
 }
 
 .mapLinks .activeLink {
@@ -475,7 +690,7 @@ h3 {
   border: 2px solid rgba(255, 255, 255, 0.18);
   border-radius: 7px;
   background: #182018;
-  z-index: 1;
+  z-index: 3;
   box-shadow: 0 5px 12px rgba(0, 0, 0, 0.24);
 }
 
@@ -636,7 +851,7 @@ h3 {
 }
 
 .combatActions {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
 .itemList,

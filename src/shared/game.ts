@@ -1,6 +1,8 @@
 export type RoomPhase = "lobby" | "playing" | "finished";
 export type Job = "adventurer" | "warrior" | "mage";
 export type TileType = "empty" | "battle" | "treasure" | "event" | "start" | "village" | "boss" | "demon" | "junction";
+export type Direction = "up" | "down" | "left" | "right";
+export type TerrainType = "grass" | "road" | "rock" | "tree" | "blocked";
 export type Rarity = "normal" | "rare" | "epic" | "legendary";
 export type GearType = "weapon" | "armor" | "accessory";
 export type ItemKey = "potion" | "hiPotion" | "ether" | "hiEther" | "warpStone" | "windFeather" | "luckyCharm";
@@ -75,6 +77,12 @@ export type Tile = {
   recommendedLevel?: number;
   connections?: number[];
   connectionLabels?: string[];
+  connectionDirections?: Direction[];
+  terrain?: TerrainType;
+  passable?: boolean;
+  stoppable?: boolean;
+  gridX?: number;
+  gridY?: number;
   x?: number;
   y?: number;
 };

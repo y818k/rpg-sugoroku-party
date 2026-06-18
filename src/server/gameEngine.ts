@@ -1,5 +1,6 @@
 import {
   CombatState,
+  Direction,
   Enemy,
   Gear,
   GearType,
@@ -481,77 +482,64 @@ function generateMap(): Tile[] {
 }
 
 function addIslandStage(tiles: Tile[], stage: 1 | 2 | 3) {
-  const count = stageLengths[stage];
-  const centerX = 50;
-  const centerY = 50;
-  const ringRadiusX = 36;
-  const ringRadiusY = 31;
-  const ring: number[] = [];
-
-  for (let i = 0; i < count; i += 1) {
-    const angle = (-Math.PI / 2) + (Math.PI * 2 * i) / count;
-    const wobbleX = Math.sin(i * 1.7 + stage) * 7;
-    const wobbleY = Math.cos(i * 1.3 + stage) * 6;
-    const radiusScale = 0.86 + ((i * 7 + stage) % 5) * 0.045;
-    const type: TileType = i === 0 ? "junction" : randomTile(stage);
-    const label = i === 0 ? `ステージ${stage}入口` : `S${stage}-${i}`;
-    ring.push(addTile(tiles, {
+  const layout = stageGridLayout(stage);
+  const byKey = new Map<string, number>();
+  layout.forEach((cell, index) => {
+    const type = cell.type ?? (index === 0 ? "junction" : randomTile(stage));
+    const tileIndex = addTile(tiles, {
       type,
-      label,
+      label: cell.label ?? `S${stage}-${index + 1}`,
       stage,
-      route: "island",
-      x: Math.round(clamp(centerX + Math.cos(angle) * ringRadiusX * radiusScale + wobbleX, 9, 91)),
-      y: Math.round(clamp(centerY + Math.sin(angle) * ringRadiusY * radiusScale + wobbleY, 10, 86)),
-    }));
-  }
-
-  for (let i = 0; i < ring.length; i += 1) {
-    connectTwoWay(tiles, ring[i], ring[(i + 1) % ring.length]);
-  }
-
-  const chordPairs: Array<[number, number]> = stage === 1
-    ? [[2, 7], [9, 14]]
-    : stage === 2
-      ? [[2, 8], [6, 13], [15, 21]]
-      : [[3, 10], [8, 16], [18, 25]];
-  chordPairs.forEach(([a, b]) => connectTwoWay(tiles, ring[a], ring[b]));
-
-  const rewardAnchors = stage === 1 ? [5, 12] : stage === 2 ? [4, 11, 18] : [5, 13, 22];
-  rewardAnchors.forEach((anchor, index) => {
-    const base = tiles[ring[anchor]];
-    const reward = addTile(tiles, {
-      type: index % 2 === 0 ? "treasure" : "event",
-      label: index % 2 === 0 ? `S${stage}-奥の宝箱` : `S${stage}-祠`,
-      stage,
-      route: "reward",
-      x: clamp((base.x ?? 50) + (index % 2 === 0 ? 8 : -8), 8, 92),
-      y: clamp((base.y ?? 50) + (base.y! < 50 ? -12 : 12), 8, 92),
+      route: cell.route ?? "grid",
+      recommendedLevel: type === "boss" ? recommendedLevels[stage] : undefined,
+      terrain: "road",
+      passable: true,
+      stoppable: true,
+      gridX: cell.x,
+      gridY: cell.y,
+      x: gridToPercent(cell.x, 10),
+      y: gridToPercent(cell.y, 6),
     });
-    connectTwoWay(tiles, ring[anchor], reward, "奥へ", "戻る");
+    byKey.set(`${cell.x},${cell.y}`, tileIndex);
   });
 
-  const bossGateIndex = ring[stage === 1 ? 15 : stage === 2 ? 17 : 20];
-  tiles[bossGateIndex].type = "junction";
-  tiles[bossGateIndex].label = `中ボス方面${stage}`;
-  const gate = tiles[bossGateIndex];
-  const boss = addTile(tiles, {
-    type: "boss",
-    label: `中ボス${stage}`,
-    stage,
-    recommendedLevel: recommendedLevels[stage],
-    x: clamp((gate.x ?? 50) + 10, 8, 92),
-    y: clamp((gate.y ?? 50) + 18, 8, 92),
+  layout.forEach((cell) => {
+    const from = byKey.get(`${cell.x},${cell.y}`);
+    if (from === undefined) return;
+    const neighbors: Array<[number, number, Direction]> = [
+      [cell.x, cell.y - 1, "up"],
+      [cell.x, cell.y + 1, "down"],
+      [cell.x - 1, cell.y, "left"],
+      [cell.x + 1, cell.y, "right"],
+    ];
+    neighbors.forEach(([x, y]) => {
+      const to = byKey.get(`${x},${y}`);
+      if (to === undefined) return;
+      const fromTile = tiles[from];
+      const toTile = tiles[to];
+      if (fromTile.type === "village") return;
+      if (fromTile.type === "boss") {
+        if (toTile.type === "village") connectOneWay(tiles, from, to);
+        return;
+      }
+      if (toTile.type === "village") {
+        connectOneWay(tiles, from, to);
+        return;
+      }
+      if (toTile.type === "boss") {
+        connectOneWay(tiles, from, to, `中ボスへ：推奨Lv${recommendedLevels[stage]}`);
+        return;
+      }
+      connectTwoWay(tiles, from, to);
+    });
   });
-  const village = addTile(tiles, {
-    type: "village",
-    label: `村${stage}`,
-    stage,
-    x: clamp((gate.x ?? 50) + 2, 8, 92),
-    y: clamp((gate.y ?? 50) + 34, 8, 92),
-  });
-  connectOneWay(tiles, bossGateIndex, boss, `中ボスへ：推奨Lv${recommendedLevels[stage]}`);
-  connectOneWay(tiles, boss, village, `村${stage}へ`);
-  return { entry: ring[0], village };
+
+  const entry = byKey.get("5,6");
+  const village = [...byKey.values()].find((index) => tiles[index].type === "village");
+  if (entry === undefined || village === undefined || !validateStageConnectivity(tiles, entry, village, stage)) {
+    throw new Error(`Invalid generated stage ${stage}`);
+  }
+  return { entry, village };
 }
 
 function addRandomTiles(tiles: Tile[], stage: 1 | 2 | 3, count: number, route: string) {
@@ -560,8 +548,74 @@ function addRandomTiles(tiles: Tile[], stage: 1 | 2 | 3, count: number, route: s
   }
 }
 
+function stageGridLayout(stage: 1 | 2 | 3) {
+  const base: Array<{ x: number; y: number; type?: TileType; label?: string; route?: string }> = [
+    { x: 5, y: 6, type: "junction", label: `ステージ${stage}入口` },
+    { x: 5, y: 5, type: "battle" },
+    { x: 4, y: 5, type: "treasure", route: "reward" },
+    { x: 6, y: 5, type: "event", route: "reward" },
+    { x: 4, y: 4 },
+    { x: 5, y: 4 },
+    { x: 6, y: 4 },
+    { x: 3, y: 4, type: "battle" },
+    { x: 7, y: 4, type: "treasure", route: "reward" },
+    { x: 3, y: 3, type: "event" },
+    { x: 4, y: 3 },
+    { x: 5, y: 3, type: "junction" },
+    { x: 6, y: 3 },
+    { x: 7, y: 3, type: "battle" },
+    { x: 4, y: 2, type: "treasure", route: "reward" },
+    { x: 5, y: 2 },
+    { x: 6, y: 2, type: "event" },
+    { x: 5, y: 1, type: "junction", label: `中ボス方面${stage}` },
+    { x: 6, y: 1, type: "boss", label: `中ボス${stage}` },
+    { x: 7, y: 1, type: "village", label: `村${stage}` },
+  ];
+  if (stage >= 2) {
+    base.push({ x: 2, y: 3, type: "treasure", route: "reward" }, { x: 8, y: 3, type: "event", route: "reward" }, { x: 8, y: 2, type: "battle" }, { x: 3, y: 2, type: "battle" });
+  }
+  if (stage >= 3) {
+    base.push({ x: 2, y: 4, type: "event", route: "reward" }, { x: 8, y: 4, type: "treasure", route: "reward" }, { x: 2, y: 2, type: "battle" }, { x: 8, y: 1, type: "treasure", route: "reward" });
+  }
+  return base.map((cell, index) => ({ ...cell, label: cell.label ?? `S${stage}-${index + 1}` }));
+}
+
+function gridToPercent(value: number, max: number) {
+  return Math.round(((value - 0.5) / max) * 100);
+}
+
+function directionBetween(from: Tile, to: Tile): Direction | undefined {
+  if (from.gridX === undefined || from.gridY === undefined || to.gridX === undefined || to.gridY === undefined) return undefined;
+  if (to.gridX === from.gridX && to.gridY === from.gridY - 1) return "up";
+  if (to.gridX === from.gridX && to.gridY === from.gridY + 1) return "down";
+  if (to.gridX === from.gridX - 1 && to.gridY === from.gridY) return "left";
+  if (to.gridX === from.gridX + 1 && to.gridY === from.gridY) return "right";
+  return undefined;
+}
+
+function validateStageConnectivity(tiles: Tile[], entry: number, target: number, stage: number) {
+  const stageIndexes = new Set(tiles.map((tile, index) => tile.stage === stage ? index : -1).filter((index) => index >= 0));
+  const visited = new Set<number>();
+  const queue = [entry];
+  while (queue.length) {
+    const current = queue.shift()!;
+    if (visited.has(current)) continue;
+    visited.add(current);
+    (tiles[current].connections ?? []).forEach((next) => {
+      if (stageIndexes.has(next) && tiles[next].passable !== false && !visited.has(next)) queue.push(next);
+    });
+  }
+  if (!visited.has(target)) return false;
+  return [...stageIndexes].every((index) => {
+    const tile = tiles[index];
+    if (tile.passable === false) return true;
+    if (tile.stoppable !== false && !(tile.connections?.length) && tile.type !== "village" && tile.type !== "demon") return false;
+    return visited.has(index);
+  });
+}
+
 function addTile(tiles: Tile[], tile: Omit<Tile, "id">) {
-  tiles.push({ id: id(), ...tile });
+  tiles.push({ id: id(), passable: true, stoppable: true, terrain: "road", ...tile });
   return tiles.length - 1;
 }
 
@@ -569,9 +623,12 @@ function connectOneWay(tiles: Tile[], from: number, to: number, label?: string) 
   const tile = tiles[from];
   if (!tile.connections) tile.connections = [];
   if (!tile.connectionLabels) tile.connectionLabels = [];
+  if (!tile.connectionDirections) tile.connectionDirections = [];
   if (tile.connections.includes(to)) return;
   tile.connections.push(to);
   tile.connectionLabels.push(label ?? `${tiles[to]?.label ?? "道"}へ`);
+  const direction = directionBetween(tile, tiles[to]);
+  if (direction) tile.connectionDirections.push(direction);
 }
 
 function connectTwoWay(tiles: Tile[], a: number, b: number, labelAB?: string, labelBA?: string) {

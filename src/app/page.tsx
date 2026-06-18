@@ -325,6 +325,11 @@ function MainStage({
   const pendingPlayer = room.pendingMove ? room.players.find((p) => p.id === room.pendingMove?.playerId) : undefined;
   const onJunction = activeTile?.type === "junction" && isMyTurn;
 
+  if (combat) {
+    const actor = room.players.find((p) => p.id === combat.playerId) ?? me;
+    return <BattleStage combat={combat} actor={actor} me={me} canAct={combat.playerId === me.id && isMyTurn} call={call} />;
+  }
+
   return (
     <div className="playfield">
       <section className="mapZone" aria-label="マップ">
@@ -466,6 +471,41 @@ function StageCard({ title, children }: { title: string; children: React.ReactNo
   );
 }
 
+function BattleStage({ combat, actor, me, canAct, call }: { combat: NonNullable<Room["combat"]>; actor: Player; me: Player; canAct: boolean; call: (event: string, payload?: Record<string, unknown>) => void }) {
+  const lastDamage = combat.lastAction?.match(/(\d+)\s*ダメージ/)?.[1];
+  const enemyIcon = combat.enemy.kind === "demon" ? "😈" : combat.enemy.kind === "boss" ? "👹" : "👾";
+  return (
+    <section className="battleStage" aria-label="戦闘">
+      <div className="battleBanner">BATTLE</div>
+      <div className="battleArena">
+        <div className="battleActor playerSide">
+          <strong>P{actor.slot} {actor.name}</strong>
+          <div className="battleHp"><span style={{ width: `${Math.max(0, (actor.stats.hp / actor.stats.maxHp) * 100)}%` }} /></div>
+          <small>{actor.stats.hp}/{actor.stats.maxHp} HP</small>
+          <div className="battleSprite playerSprite" data-asset-slot="player">🧑‍🚀</div>
+        </div>
+        <div className="battleImpact">
+          {lastDamage ? <b>{lastDamage}</b> : <b>VS</b>}
+          <span>{combat.phase === "enemyAction" ? "被弾" : combat.phase === "playerAction" ? "攻撃" : "戦闘開始"}</span>
+        </div>
+        <div className="battleActor enemySide">
+          <strong>{combat.enemy.name}</strong>
+          <div className="battleHp enemyHp"><span style={{ width: `${Math.max(0, (combat.enemy.hp / combat.enemy.maxHp) * 100)}%` }} /></div>
+          <small>{combat.enemy.hp}/{combat.enemy.maxHp} HP</small>
+          <div className="battleSprite enemySprite" data-asset-slot="enemy">{enemyIcon}</div>
+        </div>
+      </div>
+      <div className="battleMessage">
+        <p>{combat.lastAction ?? combat.log[0] ?? "コマンドを選んでください。"}</p>
+      </div>
+      <CombatPanel combat={combat} me={me} canAct={canAct} call={call} compact />
+      <div className="battleLog">
+        <Log logs={combat.log} />
+      </div>
+    </section>
+  );
+}
+
 function BottomNav({
   panel,
   setPanel,
@@ -587,6 +627,18 @@ function GameMap({ room, me, compact = false }: { room: Room; me: Player; compac
       .filter((to) => visible.has(to))
       .map((to) => ({ from: index, to })),
   );
+  const occupiedCells = new Set(
+    stageEntries
+      .filter(({ tile }) => tile.gridX !== undefined && tile.gridY !== undefined)
+      .map(({ tile }) => `${tile.gridX}-${tile.gridY}`),
+  );
+  const boardCells = Array.from({ length: 60 }, (_, index) => {
+    const x = (index % 10) + 1;
+    const y = Math.floor(index / 10) + 1;
+    const occupied = occupiedCells.has(`${x}-${y}`);
+    const terrain = occupied ? "road" : (x + y + stage) % 5 === 0 ? "rock" : (x * 2 + y + stage) % 4 === 0 ? "tree" : "grass";
+    return { key: `${x}-${y}`, terrain, occupied };
+  });
   const getPoint = (index: number) => {
     const tile = room.tiles[index];
     return { x: tile.x ?? 50, y: tile.y ?? 50 };
@@ -594,6 +646,11 @@ function GameMap({ room, me, compact = false }: { room: Room; me: Player; compac
 
   return (
     <div className={`islandMap tileBoard ${compact ? "compactMap" : ""}`}>
+      <div className="tileLayer" aria-hidden="true">
+        {boardCells.map((cell) => (
+          <div className={`boardTile ${cell.terrain} ${cell.occupied ? "passableTile" : "blockedTile"}`} key={cell.key} />
+        ))}
+      </div>
       <svg className="mapLinks" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
         {lines.map((line) => {
           const a = getPoint(line.from);
@@ -608,6 +665,8 @@ function GameMap({ room, me, compact = false }: { room: Room; me: Player; compac
             className={`mapNode ${tile.type} ${me.position === index ? "mine" : ""} ${focus.position === index ? "focus" : ""} ${path.has(index) ? "pathNode" : ""} ${branchTargets.has(index) ? "candidateNode" : ""} ${branchPreview.has(index) ? "previewNode" : ""} ${selectedIndex === index ? "selectedNode" : ""}`}
             key={`${tile.id}-${index}`}
             style={{ left: `${tile.x ?? 50}%`, top: `${tile.y ?? 50}%` }}
+            data-asset-tile={tile.type}
+            data-terrain={tile.terrain ?? "road"}
             role="button"
             aria-label={`${tileLabels[tile.type]} ${tile.label}`}
             onClick={() => setSelectedIndex(index)}
@@ -647,7 +706,7 @@ function BranchPanel({ room, me, canChoose, call, compact = false }: { room: Roo
           );
         })}
       </div>
-      <MapPanel room={room} me={me} />
+      {!compact && <MapPanel room={room} me={me} />}
     </div>
   );
 }
@@ -778,7 +837,7 @@ function MapPanel({ room, me, compact = false }: { room: Room; me: Player; compa
           <span key={`${option.to}-${option.label}`}>{option.label}: {room.tiles[option.to] ? `${tileLabels[room.tiles[option.to].type]} / ${room.tiles[option.to].label}` : "道"}</span>
         ))}
       </div>
-      <GameMap room={room} me={me} />
+      {!compact && <GameMap room={room} me={me} />}
     </div>
   );
 }
@@ -833,8 +892,9 @@ function SellPanel({ me, disabled, call }: { me: Player; disabled: boolean; call
   );
 }
 
-function CombatPanel({ combat, me, canAct, call }: { combat: NonNullable<Room["combat"]>; me: Player; canAct: boolean; call: (event: string, payload?: Record<string, unknown>) => void }) {
+function CombatPanel({ combat, me, canAct, call, compact = false }: { combat: NonNullable<Room["combat"]>; me: Player; canAct: boolean; call: (event: string, payload?: Record<string, unknown>) => void; compact?: boolean }) {
   const [lockedUntil, setLockedUntil] = useState(0);
+  const [showItems, setShowItems] = useState(false);
   useEffect(() => {
     if (combat.updatedAt) {
       const until = Date.now() + 700;
@@ -845,8 +905,9 @@ function CombatPanel({ combat, me, canAct, call }: { combat: NonNullable<Room["c
   }, [combat.updatedAt]);
   const animating = lockedUntil > Date.now();
   const actionable = canAct && !animating;
+  const combatItems = me.inventory.items.filter((i) => ["potion", "hiPotion", "ether", "hiEther"].includes(i.key));
   return (
-    <div className="stack">
+    <div className={`stack ${compact ? "compactCombatPanel" : ""}`}>
       <div className="enemyBox">
         <strong>{combat.enemy.name}</strong>
         {combat.enemy.recommendedLevel && <span>推奨Lv{combat.enemy.recommendedLevel}</span>}
@@ -860,13 +921,19 @@ function CombatPanel({ combat, me, canAct, call }: { combat: NonNullable<Room["c
       <div className="combatActions">
         <button disabled={!actionable} onClick={() => call("combat:command", { command: "attack" })}>攻撃</button>
         <button disabled={!actionable} onClick={() => call("combat:command", { command: "skill" })}>スキル</button>
+        <button disabled={!actionable || !combatItems.length} onClick={() => setShowItems((value) => !value)}>アイテム</button>
         <button disabled={!actionable || combat.enemy.kind !== "mob"} onClick={() => call("combat:command", { command: "run" })}>逃げる</button>
       </div>
-      <div className="itemList compactItems">
-        {me.inventory.items.filter((i) => ["potion", "hiPotion", "ether", "hiEther"].includes(i.key)).map((item) => (
-          <button disabled={!actionable} key={item.id} onClick={() => call("combat:command", { command: "item", itemId: item.id })}>{itemNames[item.key]}</button>
-        ))}
-      </div>
+      {showItems && (
+        <div className="itemList compactItems">
+          {combatItems.map((item) => (
+            <button disabled={!actionable} key={item.id} onClick={() => {
+              call("combat:command", { command: "item", itemId: item.id });
+              setShowItems(false);
+            }}>{itemNames[item.key]}</button>
+          ))}
+        </div>
+      )}
       <Log logs={combat.log} />
     </div>
   );
